@@ -717,6 +717,9 @@ struct OnboardingFlowView: View {
                 await self.asr.checkIfModelsExistAsync()
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            self.asr.micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
+        }
     }
 
     private var header: some View {

@@ -26,10 +26,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Initialize app settings (dock visibility, etc.)
         SettingsStore.shared.initializeAppSettings()
 
-        AnalyticsService.shared.bootstrap()
-
+        // Record first-open synchronously before async analytics bootstrap so
+        // onboarding initialization is deterministic on brand-new installs.
         let isTrueFirstOpen = AnalyticsIdentityStore.shared.ensureFirstOpenRecorded()
         SettingsStore.shared.bootstrapOnboardingState(isTrueFirstOpen: isTrueFirstOpen)
+
+        AnalyticsService.shared.bootstrap()
 
         if SettingsStore.shared.shouldPromptAccessibilityOnLaunch {
             self.requestAccessibilityPermissions()
