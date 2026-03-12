@@ -1944,7 +1944,7 @@ final class ASRService: ObservableObject {
                     self.isDownloadingModel = true
                     self.isLoadingModel = false
                     self.downloadProgress = nil
-                    self.startParakeetDownloadProgressMonitor()
+                    self.stopDownloadProgressMonitor()
                     DebugLogger.shared.info("⬇️ DOWNLOADING model...", source: "ASRService")
                 }
             }
@@ -1958,8 +1958,9 @@ final class ASRService: ObservableObject {
                 progressHandler: { [weak self] progress in
                     DispatchQueue.main.async {
                         let clamped = max(0.0, min(1.0, progress))
-                        self?.downloadProgress = clamped
-                        externalProgressHandler?(clamped)
+                        let monotonic = max(self?.downloadProgress ?? 0.0, clamped)
+                        self?.downloadProgress = monotonic
+                        externalProgressHandler?(monotonic)
                     }
                 }
             )

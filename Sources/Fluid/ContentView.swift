@@ -142,13 +142,19 @@ struct ContentView: View {
 
     var body: some View {
         let layout = AnyView(
-            NavigationSplitView(columnVisibility: self.$columnVisibility) {
-                self.sidebarView
-                    .navigationSplitViewColumnWidth(min: 220, ideal: 250, max: 300)
-            } detail: {
-                self.detailView
+            Group {
+                if self.settings.shouldShowOnboarding {
+                    self.onboardingOnlyView
+                } else {
+                    NavigationSplitView(columnVisibility: self.$columnVisibility) {
+                        self.sidebarView
+                            .navigationSplitViewColumnWidth(min: 220, ideal: 250, max: 300)
+                    } detail: {
+                        self.detailView
+                    }
+                    .navigationSplitViewStyle(.balanced)
+                }
             }
-            .navigationSplitViewStyle(.balanced)
         )
 
         let tracked = layout.withMouseTracking(self.mouseTracker)
@@ -551,12 +557,14 @@ struct ContentView: View {
             self.selectedSidebarItem = .customDictionary
         }
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button(action: self.openIssueReportingPage) {
-                    Image(systemName: "ladybug.fill")
+            if !self.settings.shouldShowOnboarding {
+                ToolbarItem(placement: .primaryAction) {
+                    Button(action: self.openIssueReportingPage) {
+                        Image(systemName: "ladybug.fill")
+                    }
+                    .help("Report an issue")
+                    .accessibilityLabel("Report an issue")
                 }
-                .help("Report an issue")
-                .accessibilityLabel("Report an issue")
             }
         }
         .overlay(alignment: .center) {}
@@ -725,6 +733,7 @@ struct ContentView: View {
     private func handleMenuBarNavigation(_ destination: MenuBarNavigationDestination?) {
         guard let destination else { return }
         defer { menuBarManager.requestedNavigationDestination = nil }
+        guard !self.settings.shouldShowOnboarding else { return }
 
         switch destination {
         case .preferences:
@@ -917,6 +926,31 @@ struct ContentView: View {
         case .history:
             return AnyView(TranscriptionHistoryView())
         }
+    }
+
+    private var onboardingOnlyView: some View {
+        OnboardingFlowView(
+            currentStep: Binding(
+                get: { self.settings.onboardingCurrentStep },
+                set: { self.settings.onboardingCurrentStep = $0 }
+            ),
+            accessibilityEnabled: self.accessibilityEnabled,
+            markAISkipped: {
+                self.settings.onboardingAISkipped = true
+            },
+            markPlaygroundValidated: {
+                self.settings.onboardingPlaygroundValidated = true
+                self.settings.playgroundUsed = true
+                self.playgroundUsed = true
+            },
+            finishOnboarding: {
+                self.completeOnboardingIfPossible()
+            },
+            openAccessibilitySettings: self.openAccessibilitySettings,
+            menuBarManager: self.menuBarManager,
+            theme: self.theme
+        )
+        .environmentObject(self.appServices)
     }
 
     // MARK: - Welcome Guide
@@ -2211,6 +2245,44 @@ struct ContentView: View {
         } else {
             return "Model will download when needed."
         }
+    }
+
+    private var onboardingVoiceModelReady: Bool {
+        self.asr.isAsrReady || self.asr.modelsExistOnDisk || SettingsStore.shared.selectedSpeechModel.isInstalled
+    }
+
+    private var onboardingMicrophoneReady: Bool {
+        self.asr.micStatus == .authorized
+    }
+
+    private var onboardingAccessibilityReady: Bool {
+        self.accessibilityEnabled
+    }
+
+    private var onboardingAIReady: Bool {
+        self.settings.onboardingAISkipped || DictationAIPostProcessingGate.isConfigured()
+    }
+
+    private var onboardingPlaygroundReady: Bool {
+        self.settings.onboardingPlaygroundValidated
+    }
+
+    private var canCompleteOnboarding: Bool {
+        self.onboardingVoiceModelReady &&
+            self.onboardingMicrophoneReady &&
+            self.onboardingAccessibilityReady &&
+            self.onboardingAIReady &&
+            self.onboardingPlaygroundReady
+    }
+
+    @MainActor
+    private func completeOnboardingIfPossible() {
+        guard self.canCompleteOnboarding else { return }
+
+        self.settings.onboardingCompleted = true
+
+        let isOnboarded = self.asr.isAsrReady || self.asr.modelsExistOnDisk
+        self.selectedSidebarItem = isOnboarded ? .preferences : .welcome
     }
 
     private func labelFor(status: AVAuthorizationStatus) -> String {

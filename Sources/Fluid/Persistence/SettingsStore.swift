@@ -60,6 +60,10 @@ final class SettingsStore: ObservableObject {
         static let updatePromptSnoozedUntil = "UpdatePromptSnoozedUntil"
         static let snoozedUpdateVersion = "SnoozedUpdateVersion"
         static let playgroundUsed = "PlaygroundUsed"
+        static let onboardingCompleted = "OnboardingCompleted"
+        static let onboardingCurrentStep = "OnboardingCurrentStep"
+        static let onboardingAISkipped = "OnboardingAISkipped"
+        static let onboardingPlaygroundValidated = "OnboardingPlaygroundValidated"
 
         // Command Mode Keys
         static let commandModeSelectedModel = "CommandModeSelectedModel"
@@ -1309,6 +1313,95 @@ final class SettingsStore: ObservableObject {
     var playgroundUsed: Bool {
         get { self.defaults.bool(forKey: Keys.playgroundUsed) }
         set { self.defaults.set(newValue, forKey: Keys.playgroundUsed) }
+    }
+
+    var onboardingCompleted: Bool {
+        get {
+            if self.defaults.object(forKey: Keys.onboardingCompleted) == nil {
+                return true
+            }
+            return self.defaults.bool(forKey: Keys.onboardingCompleted)
+        }
+        set {
+            objectWillChange.send()
+            self.defaults.set(newValue, forKey: Keys.onboardingCompleted)
+        }
+    }
+
+    var onboardingCurrentStep: Int {
+        get {
+            let raw = self.defaults.integer(forKey: Keys.onboardingCurrentStep)
+            return max(0, min(4, raw))
+        }
+        set {
+            objectWillChange.send()
+            let clamped = max(0, min(4, newValue))
+            self.defaults.set(clamped, forKey: Keys.onboardingCurrentStep)
+        }
+    }
+
+    var onboardingAISkipped: Bool {
+        get { self.defaults.bool(forKey: Keys.onboardingAISkipped) }
+        set {
+            objectWillChange.send()
+            self.defaults.set(newValue, forKey: Keys.onboardingAISkipped)
+        }
+    }
+
+    var onboardingPlaygroundValidated: Bool {
+        get { self.defaults.bool(forKey: Keys.onboardingPlaygroundValidated) }
+        set {
+            objectWillChange.send()
+            self.defaults.set(newValue, forKey: Keys.onboardingPlaygroundValidated)
+        }
+    }
+
+    var shouldShowOnboarding: Bool {
+        !self.onboardingCompleted
+    }
+
+    var shouldPromptAccessibilityOnLaunch: Bool {
+        !self.shouldShowOnboarding
+    }
+
+    func bootstrapOnboardingState(isTrueFirstOpen: Bool) {
+        guard self.defaults.object(forKey: Keys.onboardingCompleted) == nil else { return }
+
+        objectWillChange.send()
+
+        let hasLegacyUsageSignals = self.hasLegacyUsageSignals()
+        let shouldShowForThisInstall = isTrueFirstOpen && !hasLegacyUsageSignals
+
+        if shouldShowForThisInstall {
+            self.defaults.set(false, forKey: Keys.onboardingCompleted)
+            self.defaults.set(0, forKey: Keys.onboardingCurrentStep)
+            self.defaults.set(false, forKey: Keys.onboardingAISkipped)
+            self.defaults.set(false, forKey: Keys.onboardingPlaygroundValidated)
+        } else {
+            self.defaults.set(true, forKey: Keys.onboardingCompleted)
+            self.defaults.set(0, forKey: Keys.onboardingCurrentStep)
+            self.defaults.set(false, forKey: Keys.onboardingAISkipped)
+            self.defaults.set(false, forKey: Keys.onboardingPlaygroundValidated)
+        }
+    }
+
+    func resetOnboardingProgress() {
+        objectWillChange.send()
+        self.defaults.set(false, forKey: Keys.onboardingCompleted)
+        self.defaults.set(0, forKey: Keys.onboardingCurrentStep)
+        self.defaults.set(false, forKey: Keys.onboardingAISkipped)
+        self.defaults.set(false, forKey: Keys.onboardingPlaygroundValidated)
+        self.defaults.set(false, forKey: Keys.playgroundUsed)
+    }
+
+    private func hasLegacyUsageSignals() -> Bool {
+        if self.defaults.object(forKey: Keys.playgroundUsed) != nil { return true }
+        if self.defaults.object(forKey: Keys.hotkeyShortcutKey) != nil { return true }
+        if self.defaults.object(forKey: Keys.selectedSpeechModel) != nil { return true }
+        if self.defaults.object(forKey: Keys.selectedProviderID) != nil { return true }
+        if self.defaults.object(forKey: Keys.customDictionaryEntries) != nil { return true }
+        if !self.savedProviders.isEmpty { return true }
+        return false
     }
 
     // MARK: - Command Mode Settings

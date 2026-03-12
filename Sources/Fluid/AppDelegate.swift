@@ -23,16 +23,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Repository: https://github.com/altic-dev/Fluid-oss
         self.updater = AppUpdater(owner: "altic-dev", repo: "Fluid-oss")
 
-        // Request accessibility permissions for global hotkey monitoring
-        self.requestAccessibilityPermissions()
-
         // Initialize app settings (dock visibility, etc.)
         SettingsStore.shared.initializeAppSettings()
 
         AnalyticsService.shared.bootstrap()
 
-        let isFirstOpen = AnalyticsIdentityStore.shared.ensureFirstOpenRecorded()
-        if isFirstOpen {
+        let isTrueFirstOpen = AnalyticsIdentityStore.shared.ensureFirstOpenRecorded()
+        SettingsStore.shared.bootstrapOnboardingState(isTrueFirstOpen: isTrueFirstOpen)
+
+        if SettingsStore.shared.shouldPromptAccessibilityOnLaunch {
+            self.requestAccessibilityPermissions()
+        }
+
+        if isTrueFirstOpen {
             AnalyticsService.shared.capture(.appFirstOpen)
         }
         AnalyticsService.shared.capture(

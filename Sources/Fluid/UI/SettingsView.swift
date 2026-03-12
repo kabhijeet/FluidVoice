@@ -1077,6 +1077,23 @@ struct SettingsView: View {
                             Text("Crash diagnostics are written to Library/Logs/Fluid/Fluid.log by default.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
+
+                            #if DEBUG
+                            Divider().padding(.vertical, 8)
+
+                            Button(role: .destructive) {
+                                self.settings.resetOnboardingProgress()
+                                DebugLogger.shared.info("Developer action: onboarding reset", source: "SettingsView")
+                            } label: {
+                                Label("Reset Onboarding (Dev)", systemImage: "arrow.counterclockwise")
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.regular)
+
+                            Text("Developer-only action. Immediately re-enters first-run onboarding flow.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            #endif
                         }
                     }
                     .padding(16)

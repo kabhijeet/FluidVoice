@@ -129,7 +129,7 @@ final class VoiceEngineSettingsViewModel: ObservableObject {
                     Task { @MainActor in
                         // Only update progress if we're still downloading this specific model
                         guard let self, self.downloadingModel?.id == downloadingModelId else { return }
-                        self.downloadProgress = progress
+                        self.downloadProgress = max(self.downloadProgress, progress)
                     }
                 })
 

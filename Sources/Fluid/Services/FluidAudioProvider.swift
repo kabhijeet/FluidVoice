@@ -2,6 +2,18 @@ import Foundation
 #if arch(arm64)
 import FluidAudio
 
+private actor DownloadProgressSink {
+    private let handler: ((Double) -> Void)?
+
+    init(handler: ((Double) -> Void)?) {
+        self.handler = handler
+    }
+
+    func emit(_ progress: Double) {
+        self.handler?(progress)
+    }
+}
+
 /// TranscriptionProvider implementation using FluidAudio (optimized for Apple Silicon)
 /// This wraps the existing FluidAudio-based ASR for use on Apple Silicon Macs.
 final class FluidAudioProvider: TranscriptionProvider {
@@ -41,7 +53,26 @@ final class FluidAudioProvider: TranscriptionProvider {
             source: "FluidAudioProvider"
         )
         DebugLogger.shared.debug("FluidAudioProvider: target cache directory=\(cacheDirectory.path)", source: "FluidAudioProvider")
-        progressHandler?(0.05)
+        let progressSink = DownloadProgressSink(handler: progressHandler)
+        await progressSink.emit(0.05)
+
+        // AsrModels.downloadAndLoad() is a single await without granular callbacks.
+        // Emit synthetic incremental progress so the UI updates smoothly during long downloads.
+        let progressTicker = Task(priority: .utility) {
+            var stagedProgress = 0.05
+            let stageCap = 0.82
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 250_000_000)
+                if Task.isCancelled { break }
+                if stagedProgress >= stageCap { continue }
+
+                let remaining = stageCap - stagedProgress
+                let step = max(0.008, remaining * 0.12)
+                stagedProgress = min(stageCap, stagedProgress + step)
+                await progressSink.emit(stagedProgress)
+            }
+        }
+        defer { progressTicker.cancel() }
 
         let loadStart = Date()
         // Download and load models
@@ -53,17 +84,19 @@ final class FluidAudioProvider: TranscriptionProvider {
             // Default to v3 (Multilingual)
             models = try await AsrModels.downloadAndLoad(version: .v3)
         }
+        progressTicker.cancel()
         DebugLogger.shared.debug(
             "FluidAudioProvider: Models downloadAndLoad returned in \(String(format: "%.2f", Date().timeIntervalSince(loadStart)))s",
             source: "FluidAudioProvider"
         )
-        progressHandler?(0.70)
+        await progressSink.emit(0.88)
 
         // Streaming manager: lightweight, no vocab boosting → avoids CTC/ANE contention
         // that causes intermittent SIGTRAP crashes during streaming inference.
         let streamingManager = AsrManager(config: ASRConfig.default)
         try await streamingManager.initialize(models: models)
         DebugLogger.shared.debug("FluidAudioProvider: Streaming AsrManager initialized", source: "FluidAudioProvider")
+        await progressSink.emit(0.94)
 
         self.isWordBoostingActive = false
         self.boostedVocabularyTermsCount = 0
@@ -109,9 +142,10 @@ final class FluidAudioProvider: TranscriptionProvider {
 
         self.streamingAsrManager = streamingManager
         self.finalAsrManager = finalManager
+        await progressSink.emit(0.98)
 
         self.isReady = true
-        progressHandler?(1.0)
+        await progressSink.emit(1.0)
         DebugLogger.shared.info(
             "FluidAudioProvider: Models ready [isWordBoostingActive=\(self.isWordBoostingActive), terms=\(self.boostedVocabularyTermsCount)]",
             source: "FluidAudioProvider"
