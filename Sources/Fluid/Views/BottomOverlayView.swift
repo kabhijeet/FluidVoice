@@ -2315,7 +2315,6 @@ struct BottomOverlayView: View {
                             if showModelLoading {
                                 ProgressView()
                                     .controlSize(.mini)
-                                    .fixedSize()
                             }
                             if let appIcon = appIcon {
                                 Image(nsImage: appIcon)

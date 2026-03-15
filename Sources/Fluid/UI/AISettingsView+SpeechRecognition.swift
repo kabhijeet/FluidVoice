@@ -218,6 +218,13 @@ extension VoiceEngineSettingsView {
                         Spacer()
                     }
 
+                    if let supportedLanguageCodes = model.supportedLanguageCodes {
+                        Text(supportedLanguageCodes)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    }
+
                     // Memory warning for large models
                     if let memoryWarning = model.memoryWarning {
                         HStack(spacing: 6) {
@@ -395,7 +402,6 @@ extension VoiceEngineSettingsView {
                     } else {
                         ProgressView()
                             .controlSize(.mini)
-                            .fixedSize()
                         Text(self.viewModel.asr.isLoadingModel ? "Loading…" : "Downloading…")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
