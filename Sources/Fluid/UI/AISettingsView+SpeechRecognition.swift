@@ -494,7 +494,7 @@ extension VoiceEngineSettingsView {
         HStack(spacing: 12) {
             if (self.viewModel.asr.isDownloadingModel || self.viewModel.asr.isLoadingModel) && !self.viewModel.asr.isAsrReady {
                 HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
+                    ProgressView().controlSize(.small).fixedSize()
                     if self.viewModel.asr.isDownloadingModel,
                        let progress = self.viewModel.asr.downloadProgress,
                        progress >= 0.82

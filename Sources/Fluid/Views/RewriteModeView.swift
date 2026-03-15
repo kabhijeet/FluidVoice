@@ -231,6 +231,7 @@ struct RewriteModeView: View {
                 if self.service.isProcessing {
                     ProgressView()
                         .controlSize(.small)
+                        .fixedSize()
                 }
             }
             .padding()

@@ -592,6 +592,7 @@ extension AIEnhancementSettingsView {
                             if self.fluid1InterestIsSubmitting {
                                 ProgressView()
                                     .controlSize(.small)
+                                    .fixedSize()
                             } else {
                                 Image(systemName: "paperplane.fill")
                                     .font(.system(size: 11))
@@ -921,6 +922,7 @@ extension AIEnhancementSettingsView {
                             if self.viewModel.isTestingConnection {
                                 ProgressView()
                                     .controlSize(.mini)
+                                    .fixedSize()
                             } else {
                                 Image(systemName: "checkmark.shield")
                                     .font(.system(size: 12))

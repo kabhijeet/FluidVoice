@@ -653,7 +653,7 @@ extension AIEnhancementSettingsView {
                     if self.promptTest.isActive {
                         if self.promptTest.isProcessing {
                             HStack(spacing: 8) {
-                                ProgressView().controlSize(.small)
+                                ProgressView().controlSize(.small).fixedSize()
                                 Text("Processing…")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)

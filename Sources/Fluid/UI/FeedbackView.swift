@@ -165,6 +165,7 @@ struct FeedbackView: View {
                                     HStack(spacing: 8) {
                                         if self.isSendingFeedback {
                                             ProgressView()
+                                                .fixedSize()
                                                 .scaleEffect(0.8)
                                         } else {
                                             Image(systemName: "paperplane.fill")

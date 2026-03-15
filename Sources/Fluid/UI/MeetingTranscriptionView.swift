@@ -253,6 +253,7 @@ struct MeetingTranscriptionView: View {
             HStack {
                 ProgressView()
                     .controlSize(.small)
+                    .fixedSize()
 
                 Text(self.transcriptionService.currentStatus)
                     .font(.subheadline)

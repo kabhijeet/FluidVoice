@@ -48,6 +48,7 @@ struct SetupStepView: View {
                     } else if self.status == .inProgress {
                         ProgressView()
                             .controlSize(.small)
+                            .fixedSize()
                             .tint(self.statusColor)
                     } else {
                         Text("\(self.step)")
