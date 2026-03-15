@@ -45,6 +45,11 @@ struct ContentView: View {
         case command
     }
 
+    private enum DictationOutputRoute: String {
+        case normal
+        case onboardingSandbox
+    }
+
     @EnvironmentObject private var appServices: AppServices
     @StateObject private var mouseTracker = MousePositionTracker()
     @StateObject private var commandModeService = CommandModeService()
@@ -142,13 +147,19 @@ struct ContentView: View {
 
     var body: some View {
         let layout = AnyView(
-            NavigationSplitView(columnVisibility: self.$columnVisibility) {
-                self.sidebarView
-                    .navigationSplitViewColumnWidth(min: 220, ideal: 250, max: 300)
-            } detail: {
-                self.detailView
+            Group {
+                if self.settings.shouldShowOnboarding {
+                    self.onboardingOnlyView
+                } else {
+                    NavigationSplitView(columnVisibility: self.$columnVisibility) {
+                        self.sidebarView
+                            .navigationSplitViewColumnWidth(min: 220, ideal: 250, max: 300)
+                    } detail: {
+                        self.detailView
+                    }
+                    .navigationSplitViewStyle(.balanced)
+                }
             }
-            .navigationSplitViewStyle(.balanced)
         )
 
         let tracked = layout.withMouseTracking(self.mouseTracker)
@@ -551,12 +562,14 @@ struct ContentView: View {
             self.selectedSidebarItem = .customDictionary
         }
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button(action: self.openIssueReportingPage) {
-                    Image(systemName: "ladybug.fill")
+            if !self.settings.shouldShowOnboarding {
+                ToolbarItem(placement: .primaryAction) {
+                    Button(action: self.openIssueReportingPage) {
+                        Image(systemName: "ladybug.fill")
+                    }
+                    .help("Report an issue")
+                    .accessibilityLabel("Report an issue")
                 }
-                .help("Report an issue")
-                .accessibilityLabel("Report an issue")
             }
         }
         .overlay(alignment: .center) {}
@@ -725,6 +738,7 @@ struct ContentView: View {
     private func handleMenuBarNavigation(_ destination: MenuBarNavigationDestination?) {
         guard let destination else { return }
         defer { menuBarManager.requestedNavigationDestination = nil }
+        guard !self.settings.shouldShowOnboarding else { return }
 
         switch destination {
         case .preferences:
@@ -917,6 +931,32 @@ struct ContentView: View {
         case .history:
             return AnyView(TranscriptionHistoryView())
         }
+    }
+
+    private var onboardingOnlyView: some View {
+        OnboardingFlowView(
+            currentStep: Binding(
+                get: { self.settings.onboardingCurrentStep },
+                set: { self.settings.onboardingCurrentStep = $0 }
+            ),
+            accessibilityEnabled: self.accessibilityEnabled,
+            markAISkipped: {
+                self.settings.onboardingAISkipped = true
+                self.menuBarManager.setAIProcessingEnabled(false)
+            },
+            markPlaygroundValidated: {
+                self.settings.onboardingPlaygroundValidated = true
+                self.settings.playgroundUsed = true
+                self.playgroundUsed = true
+            },
+            finishOnboarding: {
+                self.completeOnboardingIfPossible()
+            },
+            openAccessibilitySettings: self.openAccessibilitySettings,
+            menuBarManager: self.menuBarManager,
+            theme: self.theme
+        )
+        .environmentObject(self.appServices)
     }
 
     // MARK: - Welcome Guide
@@ -1525,8 +1565,9 @@ struct ContentView: View {
 
     // MARK: - Stop and Process Transcription
 
-    private func stopAndProcessTranscription() async {
+    private func stopAndProcessTranscription(route: DictationOutputRoute = .normal) async {
         DebugLogger.shared.debug("stopAndProcessTranscription called", source: "ContentView")
+        DebugLogger.shared.info("Output route selected: \(route.rawValue)", source: "ContentView")
 
         // Check if we're in rewrite or command mode
         let modeAtStop = self.activeRecordingMode
@@ -1651,6 +1692,7 @@ struct ContentView: View {
         // Apply GAAV formatting as the FINAL step (after AI post-processing)
         // This ensures the user's preference for no capitalization/period is respected
         finalText = ASRService.applyGAAVFormatting(finalText)
+        self.asr.finalText = finalText
 
         DebugLogger.shared.info("Transcription finalized (chars: \(finalText.count))", source: "ContentView")
 
@@ -1664,8 +1706,16 @@ struct ContentView: View {
             ]
         )
 
+        let shouldPersistOutputs = route == .normal
+        if !shouldPersistOutputs {
+            DebugLogger.shared.info(
+                "Sandbox route active: suppressing clipboard/history/external typing side effects",
+                source: "ContentView"
+            )
+        }
+
         // Save to transcription history (transcription mode only, if enabled)
-        if SettingsStore.shared.saveTranscriptionHistory {
+        if shouldPersistOutputs, SettingsStore.shared.saveTranscriptionHistory {
             let appInfo = self.recordingAppInfo ?? self.getCurrentAppInfo()
             TranscriptionHistoryStore.shared.addEntry(
                 rawText: transcribedText,
@@ -1676,7 +1726,7 @@ struct ContentView: View {
         }
 
         // Copy to clipboard if enabled (happens before typing as a backup)
-        if SettingsStore.shared.copyTranscriptionToClipboard {
+        if shouldPersistOutputs, SettingsStore.shared.copyTranscriptionToClipboard {
             ClipboardService.copyToClipboard(finalText)
             AnalyticsService.shared.capture(
                 .outputDelivered,
@@ -1691,7 +1741,7 @@ struct ContentView: View {
         let frontmostApp = NSWorkspace.shared.frontmostApplication
         let frontmostName = frontmostApp?.localizedName ?? "Unknown"
         let isFluidFrontmost = frontmostApp?.bundleIdentifier?.contains("fluid") == true
-        let shouldTypeExternally = !isFluidFrontmost || self.isTranscriptionFocused == false
+        let shouldTypeExternally = shouldPersistOutputs && (!isFluidFrontmost || self.isTranscriptionFocused == false)
 
         DebugLogger.shared.debug(
             "Typing decision → frontmost: \(frontmostName), fluidFrontmost: \(isFluidFrontmost), editorFocused: \(self.isTranscriptionFocused), willTypeExternally: \(shouldTypeExternally)",
@@ -1731,7 +1781,8 @@ struct ContentView: View {
             )
 
             NotchOverlayManager.shared.hide()
-        } else if SettingsStore.shared.copyTranscriptionToClipboard == false,
+        } else if shouldPersistOutputs,
+                  SettingsStore.shared.copyTranscriptionToClipboard == false,
                   SettingsStore.shared.saveTranscriptionHistory
         {
             AnalyticsService.shared.capture(
@@ -1742,6 +1793,18 @@ struct ContentView: View {
                 ]
             )
         }
+    }
+
+    private func currentDictationOutputRouteForHotkeyStop() -> DictationOutputRoute {
+        let onboardingPlaygroundStep = 4
+        let isOnboardingPlayground = !self.settings.onboardingCompleted &&
+            self.settings.onboardingCurrentStep == onboardingPlaygroundStep
+        let isDictationMode = self.activeRecordingMode == .dictate
+
+        if isOnboardingPlayground && isDictationMode {
+            return .onboardingSandbox
+        }
+        return .normal
     }
 
     private func reprocessLastDictationFromHistory() {
@@ -2213,6 +2276,44 @@ struct ContentView: View {
         }
     }
 
+    private var onboardingVoiceModelReady: Bool {
+        self.asr.isAsrReady || self.asr.modelsExistOnDisk || SettingsStore.shared.selectedSpeechModel.isInstalled
+    }
+
+    private var onboardingMicrophoneReady: Bool {
+        self.asr.micStatus == .authorized
+    }
+
+    private var onboardingAccessibilityReady: Bool {
+        self.accessibilityEnabled
+    }
+
+    private var onboardingAIReady: Bool {
+        self.settings.onboardingAISkipped || DictationAIPostProcessingGate.isConfigured()
+    }
+
+    private var onboardingPlaygroundReady: Bool {
+        self.settings.onboardingPlaygroundValidated
+    }
+
+    private var canCompleteOnboarding: Bool {
+        self.onboardingVoiceModelReady &&
+            self.onboardingMicrophoneReady &&
+            self.onboardingAccessibilityReady &&
+            self.onboardingAIReady &&
+            self.onboardingPlaygroundReady
+    }
+
+    @MainActor
+    private func completeOnboardingIfPossible() {
+        guard self.canCompleteOnboarding else { return }
+
+        self.settings.onboardingCompleted = true
+
+        let isOnboarded = self.asr.isAsrReady || self.asr.modelsExistOnDisk
+        self.selectedSidebarItem = isOnboarded ? .preferences : .welcome
+    }
+
     private func labelFor(status: AVAuthorizationStatus) -> String {
         switch status {
         case .authorized: return "Microphone: Authorized"
@@ -2345,7 +2446,9 @@ struct ContentView: View {
                 }
             },
             stopAndProcessCallback: {
-                await self.stopAndProcessTranscription()
+                let route = self.currentDictationOutputRouteForHotkeyStop()
+                DebugLogger.shared.info("Hotkey stop callback using route: \(route.rawValue)", source: "ContentView")
+                await self.stopAndProcessTranscription(route: route)
             },
             commandModeCallback: {
                 DebugLogger.shared.info("Command mode triggered", source: "ContentView")

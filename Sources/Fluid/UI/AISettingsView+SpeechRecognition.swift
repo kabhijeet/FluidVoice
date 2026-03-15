@@ -11,8 +11,13 @@ extension VoiceEngineSettingsView {
     // MARK: - Speech Recognition Card
 
     var speechRecognitionCard: some View {
-        let activeModel = self.settings.selectedSpeechModel
-        let otherModels = self.viewModel.filteredSpeechModels.filter { $0 != activeModel }
+        let selectedModel = self.settings.selectedSpeechModel
+        let activeModel = selectedModel.isInstalled ? selectedModel : nil
+        let hasActiveModel = activeModel != nil
+        let otherModels = self.viewModel.filteredSpeechModels.filter { model in
+            guard let activeModel else { return true }
+            return model != activeModel
+        }
 
         return ThemedCard(hoverEffect: false) {
             VStack(alignment: .leading, spacing: 14) {
@@ -102,18 +107,30 @@ extension VoiceEngineSettingsView {
 
                 // Active + Other models list
                 VStack(alignment: .leading, spacing: 10) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Active Model")
-                            .font(.callout)
-                            .fontWeight(.semibold)
-                            .foregroundStyle(.secondary)
-                        self.speechModelCard(for: activeModel)
+                    if let activeModel {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Active Model")
+                                .font(.callout)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(.secondary)
+                            self.speechModelCard(for: activeModel)
+                        }
+                    } else {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Active Model")
+                                .font(.callout)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(.secondary)
+                            Label("No active model yet. Download and activate one below.", systemImage: "arrow.down.circle")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
 
                     Divider().padding(.vertical, 2)
 
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("Other Models")
+                        Text(hasActiveModel ? "Other Models" : "Available Models")
                             .font(.callout)
                             .fontWeight(.semibold)
                             .foregroundStyle(.secondary)
@@ -283,7 +300,8 @@ extension VoiceEngineSettingsView {
 
     func speechModelCard(for model: SettingsStore.SpeechModel) -> some View {
         let isSelected = self.viewModel.previewSpeechModel == model
-        let isActive = self.viewModel.isActiveSpeechModel(model)
+        let isConfiguredActive = self.viewModel.isActiveSpeechModel(model)
+        let isActive = isConfiguredActive && model.isInstalled
 
         return HStack(alignment: .top, spacing: 10) {
             Circle()
@@ -337,23 +355,43 @@ extension VoiceEngineSettingsView {
             if self.viewModel.downloadingModel == model {
                 // This specific model is currently being downloaded
                 VStack(alignment: .trailing, spacing: 4) {
-                    ProgressView(value: self.viewModel.downloadProgress)
-                        .progressViewStyle(.linear)
-                        .frame(width: 90)
-                    Text("\(Int(self.viewModel.downloadProgress * 100))%")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                    if self.viewModel.downloadProgress >= 0.82 {
+                        HStack(spacing: 6) {
+                            ProgressView()
+                                .controlSize(.mini)
+                            Text("Finalizing…")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    } else {
+                        ProgressView(value: self.viewModel.downloadProgress)
+                            .progressViewStyle(.linear)
+                            .frame(width: 90)
+                        Text("\(Int(self.viewModel.downloadProgress * 100))%")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
                 }
-            } else if (self.viewModel.asr.isDownloadingModel || self.viewModel.asr.isLoadingModel) && isActive && !self.viewModel.asr.isAsrReady {
+            } else if (self.viewModel.asr.isDownloadingModel || self.viewModel.asr.isLoadingModel) && isConfiguredActive && !self.viewModel.asr.isAsrReady {
                 // Active model is loading/downloading (for Activate flow)
                 VStack(alignment: .trailing, spacing: 4) {
                     if let progress = self.viewModel.asr.downloadProgress, self.viewModel.asr.isDownloadingModel {
-                        ProgressView(value: progress)
-                            .progressViewStyle(.linear)
-                            .frame(width: 90)
-                        Text("\(Int(progress * 100))%")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
+                        if progress >= 0.82 {
+                            HStack(spacing: 6) {
+                                ProgressView()
+                                    .controlSize(.mini)
+                                Text("Finalizing…")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        } else {
+                            ProgressView(value: progress)
+                                .progressViewStyle(.linear)
+                                .frame(width: 90)
+                            Text("\(Int(progress * 100))%")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
                     } else {
                         ProgressView()
                             .controlSize(.mini)
@@ -364,7 +402,7 @@ extension VoiceEngineSettingsView {
                 }
             } else if model.isInstalled {
                 HStack(spacing: 8) {
-                    if isActive {
+                    if isConfiguredActive {
                         let isLoading = (self.viewModel.asr.isLoadingModel || self.viewModel.asr.isDownloadingModel) && !self.viewModel.asr.isAsrReady
                         Text(isLoading ? "Loading…" : "Active")
                             .font(.caption2)
@@ -450,9 +488,18 @@ extension VoiceEngineSettingsView {
             if (self.viewModel.asr.isDownloadingModel || self.viewModel.asr.isLoadingModel) && !self.viewModel.asr.isAsrReady {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
-                    Text(self.viewModel.asr.isLoadingModel ? "Loading model…" : "Downloading…")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    if self.viewModel.asr.isDownloadingModel,
+                       let progress = self.viewModel.asr.downloadProgress,
+                       progress >= 0.82
+                    {
+                        Text("Finalizing download and loading model…")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text(self.viewModel.asr.isLoadingModel ? "Loading model…" : "Downloading…")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             } else if self.viewModel.asr.isAsrReady {
                 Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.fluidGreen).font(.caption)

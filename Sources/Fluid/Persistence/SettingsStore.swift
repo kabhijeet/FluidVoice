@@ -26,115 +26,6 @@ final class SettingsStore: ObservableObject {
         self.migrateOverlayBottomOffsetTo50IfNeeded()
     }
 
-    // Keys
-    private enum Keys {
-        static let enableAIProcessing = "EnableAIProcessing"
-        static let enableDebugLogs = "EnableDebugLogs"
-        static let availableAIModels = "AvailableAIModels"
-        static let availableModelsByProvider = "AvailableModelsByProvider"
-        static let selectedAIModel = "SelectedAIModel"
-        static let selectedModelByProvider = "SelectedModelByProvider"
-        static let selectedProviderID = "SelectedProviderID"
-        static let providerAPIKeys = "ProviderAPIKeys"
-        static let providerAPIKeyIdentifiers = "ProviderAPIKeyIdentifiers"
-        static let savedProviders = "SavedProviders"
-        static let verifiedProviderFingerprints = "VerifiedProviderFingerprints"
-        static let shareAnonymousAnalytics = "ShareAnonymousAnalytics"
-        static let fluid1InterestCaptured = "Fluid1InterestCaptured"
-        static let hotkeyShortcutKey = "HotkeyShortcutKey"
-        static let preferredInputDeviceUID = "PreferredInputDeviceUID"
-        static let preferredOutputDeviceUID = "PreferredOutputDeviceUID"
-        static let syncAudioDevicesWithSystem = "SyncAudioDevicesWithSystem"
-        static let visualizerNoiseThreshold = "VisualizerNoiseThreshold"
-        static let launchAtStartup = "LaunchAtStartup"
-        static let showInDock = "ShowInDock"
-        static let accentColorOption = "AccentColorOption"
-        static let enableTranscriptionSounds = "EnableTranscriptionSounds"
-        static let transcriptionStartSound = "TranscriptionStartSound"
-        static let pressAndHoldMode = "PressAndHoldMode"
-        static let enableStreamingPreview = "EnableStreamingPreview"
-        static let enableAIStreaming = "EnableAIStreaming"
-        static let copyTranscriptionToClipboard = "CopyTranscriptionToClipboard"
-        static let autoUpdateCheckEnabled = "AutoUpdateCheckEnabled"
-        static let lastUpdateCheckDate = "LastUpdateCheckDate"
-        static let updatePromptSnoozedUntil = "UpdatePromptSnoozedUntil"
-        static let snoozedUpdateVersion = "SnoozedUpdateVersion"
-        static let playgroundUsed = "PlaygroundUsed"
-
-        // Command Mode Keys
-        static let commandModeSelectedModel = "CommandModeSelectedModel"
-        static let commandModeSelectedProviderID = "CommandModeSelectedProviderID"
-        static let commandModeHotkeyShortcut = "CommandModeHotkeyShortcut"
-        static let commandModeConfirmBeforeExecute = "CommandModeConfirmBeforeExecute"
-        static let commandModeLinkedToGlobal = "CommandModeLinkedToGlobal"
-        static let commandModeShortcutEnabled = "CommandModeShortcutEnabled"
-
-        // Rewrite Mode Keys
-        static let rewriteModeHotkeyShortcut = "RewriteModeHotkeyShortcut"
-        static let rewriteModeSelectedModel = "RewriteModeSelectedModel"
-        static let rewriteModeSelectedProviderID = "RewriteModeSelectedProviderID"
-        static let rewriteModeLinkedToGlobal = "RewriteModeLinkedToGlobal"
-
-        // Model Reasoning Config Keys
-        static let modelReasoningConfigs = "ModelReasoningConfigs"
-        static let rewriteModeShortcutEnabled = "RewriteModeShortcutEnabled"
-        static let showThinkingTokens = "ShowThinkingTokens"
-
-        // Stats Keys
-        static let userTypingWPM = "UserTypingWPM"
-        static let saveTranscriptionHistory = "SaveTranscriptionHistory"
-
-        // Filler Words
-        static let fillerWords = "FillerWords"
-        static let removeFillerWordsEnabled = "RemoveFillerWordsEnabled"
-
-        // GAAV Mode (removes capitalization and trailing punctuation)
-        static let gaavModeEnabled = "GAAVModeEnabled"
-
-        // Custom Dictionary
-        static let customDictionaryEntries = "CustomDictionaryEntries"
-        static let vocabularyBoostingEnabled = "VocabularyBoostingEnabled"
-
-        // Transcription Provider (ASR)
-        static let selectedTranscriptionProvider = "SelectedTranscriptionProvider"
-        static let whisperModelSize = "WhisperModelSize"
-
-        // Unified Speech Model (replaces above two)
-        static let selectedSpeechModel = "SelectedSpeechModel"
-
-        // Overlay Position
-        static let overlayPosition = "OverlayPosition"
-        static let overlayBottomOffset = "OverlayBottomOffset"
-        static let overlayBottomOffsetMigratedTo50 = "OverlayBottomOffsetMigratedTo50"
-        static let overlaySize = "OverlaySize"
-        static let transcriptionPreviewCharLimit = "TranscriptionPreviewCharLimit"
-
-        // Media Playback Control
-        static let pauseMediaDuringTranscription = "PauseMediaDuringTranscription"
-
-        // Custom Dictation Prompt
-        static let customDictationPrompt = "CustomDictationPrompt"
-
-        // Dictation Prompt Profiles (multi-prompt system)
-        static let dictationPromptProfiles = "DictationPromptProfiles"
-        static let selectedDictationPromptID = "SelectedDictationPromptID"
-        static let selectedEditPromptID = "SelectedEditPromptID"
-        static let selectedWritePromptID = "SelectedWritePromptID" // legacy fallback key
-        static let selectedRewritePromptID = "SelectedRewritePromptID" // legacy fallback key
-
-        // Default Dictation Prompt Override (optional)
-        // nil   => use built-in default prompt
-        // ""    => use empty system prompt
-        // other => use custom default prompt text
-        static let defaultDictationPromptOverride = "DefaultDictationPromptOverride"
-        static let defaultEditPromptOverride = "DefaultEditPromptOverride"
-        static let defaultWritePromptOverride = "DefaultWritePromptOverride" // legacy fallback key
-        static let defaultRewritePromptOverride = "DefaultRewritePromptOverride" // legacy fallback key
-
-        // Streak Settings
-        static let weekendsDontBreakStreak = "WeekendsDontBreakStreak"
-    }
-
     // MARK: - Prompt Profiles (Unified)
 
     enum PromptMode: String, Codable, CaseIterable, Identifiable {
@@ -1106,7 +997,7 @@ final class SettingsStore: ObservableObject {
     }
 
     enum TranscriptionStartSound: String, CaseIterable, Identifiable {
-        case none = "none"
+        case none
         case fluidSfx1 = "fluid_sfx_1"
         case fluidSfx2 = "fluid_sfx_2"
         case fluidSfx3 = "fluid_sfx_3"
@@ -1309,6 +1200,95 @@ final class SettingsStore: ObservableObject {
     var playgroundUsed: Bool {
         get { self.defaults.bool(forKey: Keys.playgroundUsed) }
         set { self.defaults.set(newValue, forKey: Keys.playgroundUsed) }
+    }
+
+    var onboardingCompleted: Bool {
+        get {
+            if self.defaults.object(forKey: Keys.onboardingCompleted) == nil {
+                return true
+            }
+            return self.defaults.bool(forKey: Keys.onboardingCompleted)
+        }
+        set {
+            objectWillChange.send()
+            self.defaults.set(newValue, forKey: Keys.onboardingCompleted)
+        }
+    }
+
+    var onboardingCurrentStep: Int {
+        get {
+            let raw = self.defaults.integer(forKey: Keys.onboardingCurrentStep)
+            return max(0, min(4, raw))
+        }
+        set {
+            objectWillChange.send()
+            let clamped = max(0, min(4, newValue))
+            self.defaults.set(clamped, forKey: Keys.onboardingCurrentStep)
+        }
+    }
+
+    var onboardingAISkipped: Bool {
+        get { self.defaults.bool(forKey: Keys.onboardingAISkipped) }
+        set {
+            objectWillChange.send()
+            self.defaults.set(newValue, forKey: Keys.onboardingAISkipped)
+        }
+    }
+
+    var onboardingPlaygroundValidated: Bool {
+        get { self.defaults.bool(forKey: Keys.onboardingPlaygroundValidated) }
+        set {
+            objectWillChange.send()
+            self.defaults.set(newValue, forKey: Keys.onboardingPlaygroundValidated)
+        }
+    }
+
+    var shouldShowOnboarding: Bool {
+        !self.onboardingCompleted
+    }
+
+    var shouldPromptAccessibilityOnLaunch: Bool {
+        !self.shouldShowOnboarding
+    }
+
+    func bootstrapOnboardingState(isTrueFirstOpen: Bool) {
+        guard self.defaults.object(forKey: Keys.onboardingCompleted) == nil else { return }
+
+        objectWillChange.send()
+
+        let hasLegacyUsageSignals = self.hasLegacyUsageSignals()
+        let shouldShowForThisInstall = isTrueFirstOpen && !hasLegacyUsageSignals
+
+        if shouldShowForThisInstall {
+            self.defaults.set(false, forKey: Keys.onboardingCompleted)
+            self.defaults.set(0, forKey: Keys.onboardingCurrentStep)
+            self.defaults.set(false, forKey: Keys.onboardingAISkipped)
+            self.defaults.set(false, forKey: Keys.onboardingPlaygroundValidated)
+        } else {
+            self.defaults.set(true, forKey: Keys.onboardingCompleted)
+            self.defaults.set(0, forKey: Keys.onboardingCurrentStep)
+            self.defaults.set(false, forKey: Keys.onboardingAISkipped)
+            self.defaults.set(false, forKey: Keys.onboardingPlaygroundValidated)
+        }
+    }
+
+    func resetOnboardingProgress() {
+        objectWillChange.send()
+        self.defaults.set(false, forKey: Keys.onboardingCompleted)
+        self.defaults.set(0, forKey: Keys.onboardingCurrentStep)
+        self.defaults.set(false, forKey: Keys.onboardingAISkipped)
+        self.defaults.set(false, forKey: Keys.onboardingPlaygroundValidated)
+        self.defaults.set(false, forKey: Keys.playgroundUsed)
+    }
+
+    private func hasLegacyUsageSignals() -> Bool {
+        if self.defaults.object(forKey: Keys.playgroundUsed) != nil { return true }
+        if self.defaults.object(forKey: Keys.hotkeyShortcutKey) != nil { return true }
+        if self.defaults.object(forKey: Keys.selectedSpeechModel) != nil { return true }
+        if self.defaults.object(forKey: Keys.selectedProviderID) != nil { return true }
+        if self.defaults.object(forKey: Keys.customDictionaryEntries) != nil { return true }
+        if !self.savedProviders.isEmpty { return true }
+        return false
     }
 
     // MARK: - Command Mode Settings
@@ -2049,7 +2029,8 @@ final class SettingsStore: ObservableObject {
 
         var languageSupport: String {
             switch self {
-            case .parakeetTDT: return "25 Languages"
+            case .parakeetTDT:
+                return "25 European Languages"
             case .parakeetTDTv2: return "English Only (Higher Accuracy)"
             case .qwen3Asr: return "30 Languages"
             case .appleSpeech: return "System Languages"
@@ -2517,6 +2498,121 @@ final class SettingsStore: ObservableObject {
             objectWillChange.send()
             self.defaults.set(newValue.rawValue, forKey: Keys.whisperModelSize)
         }
+    }
+}
+
+private extension SettingsStore {
+    // Keys
+    enum Keys {
+        static let enableAIProcessing = "EnableAIProcessing"
+        static let enableDebugLogs = "EnableDebugLogs"
+        static let availableAIModels = "AvailableAIModels"
+        static let availableModelsByProvider = "AvailableModelsByProvider"
+        static let selectedAIModel = "SelectedAIModel"
+        static let selectedModelByProvider = "SelectedModelByProvider"
+        static let selectedProviderID = "SelectedProviderID"
+        static let providerAPIKeys = "ProviderAPIKeys"
+        static let providerAPIKeyIdentifiers = "ProviderAPIKeyIdentifiers"
+        static let savedProviders = "SavedProviders"
+        static let verifiedProviderFingerprints = "VerifiedProviderFingerprints"
+        static let shareAnonymousAnalytics = "ShareAnonymousAnalytics"
+        static let fluid1InterestCaptured = "Fluid1InterestCaptured"
+        static let hotkeyShortcutKey = "HotkeyShortcutKey"
+        static let preferredInputDeviceUID = "PreferredInputDeviceUID"
+        static let preferredOutputDeviceUID = "PreferredOutputDeviceUID"
+        static let syncAudioDevicesWithSystem = "SyncAudioDevicesWithSystem"
+        static let visualizerNoiseThreshold = "VisualizerNoiseThreshold"
+        static let launchAtStartup = "LaunchAtStartup"
+        static let showInDock = "ShowInDock"
+        static let accentColorOption = "AccentColorOption"
+        static let enableTranscriptionSounds = "EnableTranscriptionSounds"
+        static let transcriptionStartSound = "TranscriptionStartSound"
+        static let pressAndHoldMode = "PressAndHoldMode"
+        static let enableStreamingPreview = "EnableStreamingPreview"
+        static let enableAIStreaming = "EnableAIStreaming"
+        static let copyTranscriptionToClipboard = "CopyTranscriptionToClipboard"
+        static let autoUpdateCheckEnabled = "AutoUpdateCheckEnabled"
+        static let lastUpdateCheckDate = "LastUpdateCheckDate"
+        static let updatePromptSnoozedUntil = "UpdatePromptSnoozedUntil"
+        static let snoozedUpdateVersion = "SnoozedUpdateVersion"
+        static let playgroundUsed = "PlaygroundUsed"
+        static let onboardingCompleted = "OnboardingCompleted"
+        static let onboardingCurrentStep = "OnboardingCurrentStep"
+        static let onboardingAISkipped = "OnboardingAISkipped"
+        static let onboardingPlaygroundValidated = "OnboardingPlaygroundValidated"
+
+        // Command Mode Keys
+        static let commandModeSelectedModel = "CommandModeSelectedModel"
+        static let commandModeSelectedProviderID = "CommandModeSelectedProviderID"
+        static let commandModeHotkeyShortcut = "CommandModeHotkeyShortcut"
+        static let commandModeConfirmBeforeExecute = "CommandModeConfirmBeforeExecute"
+        static let commandModeLinkedToGlobal = "CommandModeLinkedToGlobal"
+        static let commandModeShortcutEnabled = "CommandModeShortcutEnabled"
+
+        // Rewrite Mode Keys
+        static let rewriteModeHotkeyShortcut = "RewriteModeHotkeyShortcut"
+        static let rewriteModeSelectedModel = "RewriteModeSelectedModel"
+        static let rewriteModeSelectedProviderID = "RewriteModeSelectedProviderID"
+        static let rewriteModeLinkedToGlobal = "RewriteModeLinkedToGlobal"
+
+        // Model Reasoning Config Keys
+        static let modelReasoningConfigs = "ModelReasoningConfigs"
+        static let rewriteModeShortcutEnabled = "RewriteModeShortcutEnabled"
+        static let showThinkingTokens = "ShowThinkingTokens"
+
+        // Stats Keys
+        static let userTypingWPM = "UserTypingWPM"
+        static let saveTranscriptionHistory = "SaveTranscriptionHistory"
+
+        // Filler Words
+        static let fillerWords = "FillerWords"
+        static let removeFillerWordsEnabled = "RemoveFillerWordsEnabled"
+
+        // GAAV Mode (removes capitalization and trailing punctuation)
+        static let gaavModeEnabled = "GAAVModeEnabled"
+
+        // Custom Dictionary
+        static let customDictionaryEntries = "CustomDictionaryEntries"
+        static let vocabularyBoostingEnabled = "VocabularyBoostingEnabled"
+
+        // Transcription Provider (ASR)
+        static let selectedTranscriptionProvider = "SelectedTranscriptionProvider"
+        static let whisperModelSize = "WhisperModelSize"
+
+        // Unified Speech Model (replaces above two)
+        static let selectedSpeechModel = "SelectedSpeechModel"
+
+        // Overlay Position
+        static let overlayPosition = "OverlayPosition"
+        static let overlayBottomOffset = "OverlayBottomOffset"
+        static let overlayBottomOffsetMigratedTo50 = "OverlayBottomOffsetMigratedTo50"
+        static let overlaySize = "OverlaySize"
+        static let transcriptionPreviewCharLimit = "TranscriptionPreviewCharLimit"
+
+        // Media Playback Control
+        static let pauseMediaDuringTranscription = "PauseMediaDuringTranscription"
+
+        // Custom Dictation Prompt
+        static let customDictationPrompt = "CustomDictationPrompt"
+
+        // Dictation Prompt Profiles (multi-prompt system)
+        static let dictationPromptProfiles = "DictationPromptProfiles"
+        static let selectedDictationPromptID = "SelectedDictationPromptID"
+        static let selectedEditPromptID = "SelectedEditPromptID"
+        static let selectedWritePromptID = "SelectedWritePromptID" // legacy fallback key
+        static let selectedRewritePromptID = "SelectedRewritePromptID" // legacy fallback key
+
+        // Default Dictation Prompt Override (optional)
+        // nil   => use built-in default prompt
+        // ""    => use empty system prompt
+        // other => use custom default prompt text
+        static let defaultDictationPromptOverride = "DefaultDictationPromptOverride"
+        static let defaultEditPromptOverride = "DefaultEditPromptOverride"
+        static let defaultWritePromptOverride = "DefaultWritePromptOverride" // legacy fallback key
+        static let defaultRewritePromptOverride = "DefaultRewritePromptOverride" // legacy fallback key
+
+        // Streak Settings
+        static let weekendsDontBreakStreak = "WeekendsDontBreakStreak"
     }
 }
 
