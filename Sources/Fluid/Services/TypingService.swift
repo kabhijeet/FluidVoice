@@ -31,8 +31,29 @@ final class TypingService {
         let items: [PasteboardItemSnapshot]
     }
 
+    private enum InsertionStrategy: String {
+        case auto
+        case globalPaste = "global_paste"
+        case pidPaste = "pid_paste"
+        case menuPaste = "menu_paste"
+        case unicodePID = "unicode_pid"
+        case accessibilityOnly = "ax_only"
+    }
+
     private static let focusSnapshotQueue = DispatchQueue(label: "TypingService.FocusSnapshot")
     private static var focusSnapshot: FocusSnapshot?
+
+    private static var forcedInsertionStrategy: InsertionStrategy {
+        if let env = ProcessInfo.processInfo.environment["FLUID_TYPING_STRATEGY"],
+           let strategy = InsertionStrategy(rawValue: env) {
+            return strategy
+        }
+        if let raw = UserDefaults.standard.string(forKey: "typingInsertionStrategy"),
+           let strategy = InsertionStrategy(rawValue: raw) {
+            return strategy
+        }
+        return .auto
+    }
 
     // MARK: - Focus helpers (shared)
 
@@ -182,6 +203,16 @@ final class TypingService {
     private func insertTextInstantly(_ text: String, preferredTargetPID: pid_t?) {
         self.log("[TypingService] insertTextInstantly called with \(text.count) characters")
         self.log("[TypingService] Attempting to type text: \"\(text.prefix(50))\(text.count > 50 ? "..." : "")\"")
+        self.log("[TypingService] Forced insertion strategy: \(Self.forcedInsertionStrategy.rawValue)")
+
+        if Self.forcedInsertionStrategy != .auto {
+            if self.runForcedInsertionStrategy(Self.forcedInsertionStrategy, text: text, preferredTargetPID: preferredTargetPID) {
+                self.log("[TypingService] SUCCESS: Forced insertion strategy completed")
+            } else {
+                self.log("[TypingService] ERROR: Forced insertion strategy failed")
+            }
+            return
+        }
 
         // Preferred: behave like a user paste after the app has been restored.
         // This tends to work better for custom web editors than posting Cmd+V to a PID.
@@ -283,6 +314,29 @@ final class TypingService {
             usleep(1000)
         }
         self.log("[TypingService] Character-by-character typing completed")
+    }
+
+    private func runForcedInsertionStrategy(
+        _ strategy: InsertionStrategy,
+        text: String,
+        preferredTargetPID: pid_t?
+    ) -> Bool {
+        switch strategy {
+        case .auto:
+            return false
+        case .globalPaste:
+            return self.insertTextViaClipboard(text)
+        case .pidPaste:
+            guard let preferredTargetPID, preferredTargetPID > 0 else { return false }
+            return self.insertTextViaClipboardToPid(text, targetPID: preferredTargetPID)
+        case .menuPaste:
+            return self.insertTextViaMenuPaste(text)
+        case .unicodePID:
+            guard let preferredTargetPID, preferredTargetPID > 0 else { return false }
+            return self.insertTextBulkInstant(text, targetPID: preferredTargetPID)
+        case .accessibilityOnly:
+            return self.insertTextViaAccessibility(text)
+        }
     }
 
     private static let cgEventUnicodeLimit = 200
@@ -541,6 +595,40 @@ final class TypingService {
             usleep(10_000)
             cmdVUp.post(tap: .cghidEventTap)
             self.log("[TypingService] Cmd+V sent via clipboard insertion")
+            return true
+        }
+    }
+
+    private func insertTextViaMenuPaste(_ text: String) -> Bool {
+        self.log("[TypingService] Starting menu-based paste insertion")
+        guard let appName = NSWorkspace.shared.frontmostApplication?.localizedName, !appName.isEmpty else {
+            self.log("[TypingService] ERROR: No frontmost app name available for menu paste")
+            return false
+        }
+
+        return self.withTemporaryPasteboardString(text, restoreDelayMicros: 180_000) {
+            let escapedAppName = appName.replacingOccurrences(of: "\"", with: "\\\"")
+            let script = """
+            tell application "System Events"
+                tell process "\(escapedAppName)"
+                    click menu item "Paste" of menu "Edit" of menu bar 1
+                end tell
+            end tell
+            """
+
+            guard let appleScript = NSAppleScript(source: script) else {
+                self.log("[TypingService] ERROR: Failed to create AppleScript for menu paste")
+                return false
+            }
+
+            var errorInfo: NSDictionary?
+            let result = appleScript.executeAndReturnError(&errorInfo)
+            if let errorInfo {
+                self.log("[TypingService] ERROR: Menu paste AppleScript failed: \(errorInfo)")
+                return false
+            }
+
+            self.log("[TypingService] Menu paste executed for app \(appName), result: \(result.stringValue ?? "ok")")
             return true
         }
     }
