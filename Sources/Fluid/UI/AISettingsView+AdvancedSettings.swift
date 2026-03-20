@@ -231,6 +231,8 @@ extension AIEnhancementSettingsView {
                     )
                 }
             }
+
+            self.appPromptBindingsSection(mode: mode)
         }
         .padding(12)
         .background(
@@ -352,6 +354,151 @@ extension AIEnhancementSettingsView {
         .onAppear {
             self.ensureDefaultEditModeSyncState()
         }
+    }
+
+    @ViewBuilder
+    private func appPromptBindingsSection(mode: SettingsStore.PromptMode) -> some View {
+        let bindings = self.viewModel.appBindings(for: mode)
+        let appTargets = self.viewModel.appBindingTargets(for: mode)
+        let modeProfiles = self.viewModel.dictationPromptProfiles
+            .filter { $0.mode.normalized == mode.normalized }
+
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Text("App-Based Prompts")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(self.theme.palette.secondaryText)
+                Spacer()
+
+                Menu {
+                    if appTargets.isEmpty {
+                        Text("No unassigned running apps")
+                    } else {
+                        ForEach(appTargets) { target in
+                            Button(self.appBindingTargetMenuTitle(target)) {
+                                self.viewModel.addAppPromptBinding(
+                                    for: mode,
+                                    appBundleID: target.bundleID,
+                                    appName: target.name
+                                )
+                            }
+                        }
+                    }
+
+                    Divider()
+
+                    Button("Choose App…") {
+                        self.viewModel.addAppPromptBindingFromFilePicker(for: mode)
+                    }
+                } label: {
+                    Text("+ Add App")
+                }
+                .buttonStyle(CompactButtonStyle())
+                .frame(minHeight: 26)
+            }
+
+            Text("Pick from running apps, or choose any .app to add an app not shown in the list.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 4)
+
+            if bindings.isEmpty {
+                Text("No app-specific overrides yet. Add one to route this mode to a different prompt in a specific app.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 4)
+            } else {
+                ForEach(bindings) { binding in
+                    self.appPromptBindingRow(
+                        binding: binding,
+                        mode: mode,
+                        modeProfiles: modeProfiles
+                    )
+                }
+            }
+        }
+        .padding(.top, 6)
+    }
+
+    @ViewBuilder
+    private func appPromptBindingRow(
+        binding: SettingsStore.AppPromptBinding,
+        mode: SettingsStore.PromptMode,
+        modeProfiles: [SettingsStore.DictationPromptProfile]
+    ) -> some View {
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(binding.appName)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(self.theme.palette.primaryText)
+                    .lineLimit(1)
+                Text(binding.appBundleID)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 8)
+
+            Menu {
+                Button("Default") {
+                    self.viewModel.setPromptID(nil, for: binding)
+                }
+
+                Divider()
+
+                Button("Create New Prompt…") {
+                    self.viewModel.openNewPromptEditor(prefillMode: mode)
+                }
+
+                if !modeProfiles.isEmpty {
+                    Divider()
+                    ForEach(modeProfiles) { profile in
+                        Button(profile.name.isEmpty ? "Untitled Prompt" : profile.name) {
+                            self.viewModel.setPromptID(profile.id, for: binding)
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Text(self.viewModel.promptName(for: mode, promptID: binding.promptID))
+                        .font(.caption)
+                        .foregroundStyle(self.theme.palette.primaryText)
+                        .lineLimit(1)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(self.theme.palette.cardBackground.opacity(0.5))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .stroke(self.theme.palette.cardBorder.opacity(0.35), lineWidth: 1)
+                        )
+                )
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize(horizontal: true, vertical: false)
+
+            Button {
+                self.viewModel.removeAppPromptBinding(binding)
+            } label: {
+                Image(systemName: "trash")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.red.opacity(0.9))
+            }
+            .buttonStyle(.plain)
+            .help("Remove app-specific override")
+        }
+        .padding(8)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(self.theme.palette.cardBackground.opacity(0.35))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(self.theme.palette.cardBorder.opacity(0.2), lineWidth: 1)
+                )
+        )
     }
 
     private var editModeVerifiedProviders: [AIEnhancementSettingsViewModel.ProviderItemData] {
@@ -491,6 +638,13 @@ extension AIEnhancementSettingsView {
     private func modeAccentColor(_ mode: SettingsStore.PromptMode) -> Color {
         _ = mode
         return Color.fluidGreen
+    }
+
+    private func appBindingTargetMenuTitle(_ target: AIEnhancementSettingsViewModel.AppBindingTarget) -> String {
+        if target.name.caseInsensitiveCompare(target.bundleID) == .orderedSame {
+            return target.bundleID
+        }
+        return "\(target.name) (\(target.bundleID))"
     }
 
     private func modeSymbol(_ mode: SettingsStore.PromptMode) -> String {

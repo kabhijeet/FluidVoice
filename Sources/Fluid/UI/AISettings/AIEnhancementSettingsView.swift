@@ -41,5 +41,22 @@ struct AIEnhancementSettingsView: View {
                     Text("Delete “\(self.viewModel.pendingDeletePromptName)”? This cannot be undone.")
                 }
             }
+            .alert(
+                "Couldn't Add App Override",
+                isPresented: Binding(
+                    get: { !self.viewModel.appPromptBindingErrorMessage.isEmpty },
+                    set: { isPresented in
+                        if !isPresented {
+                            self.viewModel.appPromptBindingErrorMessage = ""
+                        }
+                    }
+                )
+            ) {
+                Button("OK", role: .cancel) {
+                    self.viewModel.appPromptBindingErrorMessage = ""
+                }
+            } message: {
+                Text(self.viewModel.appPromptBindingErrorMessage)
+            }
     }
 }

@@ -1749,9 +1749,24 @@ struct BottomOverlayView: View {
         self.activePromptMode != nil
     }
 
+    private var promptResolutionBundleID: String? {
+        self.activeAppMonitor.activeAppBundleID
+    }
+
+    private var isAppPromptOverrideActive: Bool {
+        guard let activePromptMode else { return false }
+        return self.settings.hasAppPromptBinding(
+            for: activePromptMode,
+            appBundleID: self.promptResolutionBundleID
+        )
+    }
+
     private var selectedPromptLabel: String {
         guard let activePromptMode else { return "N/A" }
-        if let profile = self.settings.selectedPromptProfile(for: activePromptMode) {
+        if let profile = self.settings.resolvedPromptProfile(
+            for: activePromptMode,
+            appBundleID: self.promptResolutionBundleID
+        ) {
             let name = profile.name.trimmingCharacters(in: .whitespacesAndNewlines)
             return name.isEmpty ? "Untitled" : name
         }
@@ -1994,6 +2009,17 @@ struct BottomOverlayView: View {
                 .font(.system(size: self.promptSelectorFontSize, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.75))
                 .lineLimit(1)
+            if self.isAppPromptOverrideActive {
+                Text("App")
+                    .font(.system(size: max(self.promptSelectorFontSize - 2, 8), weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.9))
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+                    .background(
+                        Capsule()
+                            .fill(Color.white.opacity(0.15))
+                    )
+            }
             Image(systemName: "chevron.up")
                 .font(.system(size: max(self.promptSelectorFontSize - 1, 8), weight: .semibold))
                 .foregroundStyle(.white.opacity(0.45))

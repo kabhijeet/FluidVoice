@@ -270,6 +270,7 @@ struct NotchExpandedView: View {
     let audioPublisher: AnyPublisher<CGFloat, Never>
     @ObservedObject private var contentState = NotchContentState.shared
     @ObservedObject private var settings = SettingsStore.shared
+    @ObservedObject private var activeAppMonitor = ActiveAppMonitor.shared
     @Environment(\.theme) private var theme
     @State private var showPromptHoverMenu = false
     @State private var promptHoverWorkItem: DispatchWorkItem?
@@ -336,9 +337,24 @@ struct NotchExpandedView: View {
         self.activePromptMode != nil
     }
 
+    private var promptResolutionBundleID: String? {
+        self.activeAppMonitor.activeAppBundleID
+    }
+
+    private var isAppPromptOverrideActive: Bool {
+        guard let activePromptMode else { return false }
+        return self.settings.hasAppPromptBinding(
+            for: activePromptMode,
+            appBundleID: self.promptResolutionBundleID
+        )
+    }
+
     private var selectedPromptLabel: String {
         guard let activePromptMode else { return "N/A" }
-        if let profile = self.settings.selectedPromptProfile(for: activePromptMode) {
+        if let profile = self.settings.resolvedPromptProfile(
+            for: activePromptMode,
+            appBundleID: self.promptResolutionBundleID
+        ) {
             let name = profile.name.trimmingCharacters(in: .whitespacesAndNewlines)
             return name.isEmpty ? "Untitled" : name
         }
@@ -474,6 +490,17 @@ struct NotchExpandedView: View {
                             .font(.system(size: 9, weight: .medium))
                             .foregroundStyle(.white.opacity(0.75))
                             .lineLimit(1)
+                        if self.isAppPromptOverrideActive {
+                            Text("App")
+                                .font(.system(size: 8, weight: .semibold))
+                                .foregroundStyle(.white.opacity(0.9))
+                                .padding(.horizontal, 4)
+                                .padding(.vertical, 1)
+                                .background(
+                                    Capsule()
+                                        .fill(Color.white.opacity(0.15))
+                                )
+                        }
                         Image(systemName: "chevron.down")
                             .font(.system(size: 8, weight: .semibold))
                             .foregroundStyle(.white.opacity(0.45))

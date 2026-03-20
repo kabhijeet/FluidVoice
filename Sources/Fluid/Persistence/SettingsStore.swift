@@ -126,6 +126,82 @@ final class SettingsStore: ObservableObject {
         }
     }
 
+    struct AppPromptBinding: Codable, Identifiable, Hashable {
+        let id: String
+        var mode: PromptMode
+        var appBundleID: String
+        var appName: String
+        var promptID: String?
+        var createdAt: Date
+        var updatedAt: Date
+
+        private enum CodingKeys: String, CodingKey {
+            case id
+            case mode
+            case appBundleID
+            case appName
+            case promptID
+            case createdAt
+            case updatedAt
+        }
+
+        init(
+            id: String = UUID().uuidString,
+            mode: PromptMode,
+            appBundleID: String,
+            appName: String,
+            promptID: String?,
+            createdAt: Date = Date(),
+            updatedAt: Date = Date()
+        ) {
+            self.id = id
+            self.mode = mode.normalized
+            self.appBundleID = Self.normalizeBundleID(appBundleID)
+            let trimmedName = appName.trimmingCharacters(in: .whitespacesAndNewlines)
+            self.appName = trimmedName.isEmpty ? self.appBundleID : trimmedName
+            let trimmedPromptID = promptID?.trimmingCharacters(in: .whitespacesAndNewlines)
+            self.promptID = (trimmedPromptID?.isEmpty == true) ? nil : trimmedPromptID
+            self.createdAt = createdAt
+            self.updatedAt = updatedAt
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            self.id = try container.decode(String.self, forKey: .id)
+            self.mode = try (container.decodeIfPresent(PromptMode.self, forKey: .mode) ?? .dictate).normalized
+            let rawBundleID = try container.decodeIfPresent(String.self, forKey: .appBundleID) ?? ""
+            self.appBundleID = Self.normalizeBundleID(rawBundleID)
+            let rawName = try container.decodeIfPresent(String.self, forKey: .appName) ?? ""
+            let trimmedName = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+            self.appName = trimmedName.isEmpty ? self.appBundleID : trimmedName
+            let rawPromptID = try container.decodeIfPresent(String.self, forKey: .promptID)
+            let trimmedPromptID = rawPromptID?.trimmingCharacters(in: .whitespacesAndNewlines)
+            self.promptID = (trimmedPromptID?.isEmpty == true) ? nil : trimmedPromptID
+            self.createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
+            self.updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt) ?? Date()
+        }
+
+        private static func normalizeBundleID(_ value: String) -> String {
+            value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        }
+    }
+
+    enum PromptResolutionSource: String {
+        case appBindingProfile
+        case appBindingDefault
+        case selectedProfile
+        case defaultOverride
+        case builtInDefault
+    }
+
+    struct PromptResolution {
+        let source: PromptResolutionSource
+        let profile: DictationPromptProfile?
+        let appBinding: AppPromptBinding?
+        let promptBody: String
+        let systemPrompt: String
+    }
+
     /// User-defined dictation prompt profiles (named system prompts for dictation cleanup).
     /// The built-in default prompt is not stored here.
     var dictationPromptProfiles: [DictationPromptProfile] {
@@ -144,6 +220,27 @@ final class SettingsStore: ObservableObject {
             } else {
                 // If encoding fails, avoid writing corrupt data.
                 self.defaults.removeObject(forKey: Keys.dictationPromptProfiles)
+            }
+        }
+    }
+
+    /// Per-app prompt routing rules keyed by mode + app bundle identifier.
+    /// `promptID == nil` means force Default prompt for that mode in the matched app.
+    var appPromptBindings: [AppPromptBinding] {
+        get {
+            guard let data = self.defaults.data(forKey: Keys.appPromptBindings),
+                  let decoded = try? JSONDecoder().decode([AppPromptBinding].self, from: data)
+            else {
+                return []
+            }
+            return decoded
+        }
+        set {
+            objectWillChange.send()
+            if let encoded = try? JSONEncoder().encode(newValue) {
+                self.defaults.set(encoded, forKey: Keys.appPromptBindings)
+            } else {
+                self.defaults.removeObject(forKey: Keys.appPromptBindings)
             }
         }
     }
@@ -245,6 +342,92 @@ final class SettingsStore: ObservableObject {
         guard let id = self.selectedPromptID(for: mode) else { return nil }
         let target = mode.normalized
         return self.dictationPromptProfiles.first(where: { $0.id == id && $0.mode.normalized == target })
+    }
+
+    func appPromptBindings(for mode: PromptMode) -> [AppPromptBinding] {
+        let target = mode.normalized
+        return self.appPromptBindings.filter { $0.mode.normalized == target }
+    }
+
+    func appPromptBinding(for mode: PromptMode, appBundleID: String?) -> AppPromptBinding? {
+        guard let normalizedBundleID = Self.normalizeAppBundleID(appBundleID) else { return nil }
+        let target = mode.normalized
+        return self.appPromptBindings.first {
+            $0.mode.normalized == target &&
+                $0.appBundleID == normalizedBundleID
+        }
+    }
+
+    func hasAppPromptBinding(for mode: PromptMode, appBundleID: String?) -> Bool {
+        self.appPromptBinding(for: mode, appBundleID: appBundleID) != nil
+    }
+
+    func upsertAppPromptBinding(
+        for mode: PromptMode,
+        appBundleID: String,
+        appName: String,
+        promptID: String?
+    ) {
+        guard let normalizedBundleID = Self.normalizeAppBundleID(appBundleID) else { return }
+
+        let normalizedMode = mode.normalized
+        let trimmedName = appName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedName = trimmedName.isEmpty ? normalizedBundleID : trimmedName
+        let cleanedPromptID = promptID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedPromptID = (cleanedPromptID?.isEmpty == true) ? nil : cleanedPromptID
+        let now = Date()
+
+        var bindings = self.appPromptBindings
+        if let idx = bindings.firstIndex(where: {
+            $0.mode.normalized == normalizedMode &&
+                $0.appBundleID == normalizedBundleID
+        }) {
+            bindings[idx].mode = normalizedMode
+            bindings[idx].appName = resolvedName
+            bindings[idx].promptID = resolvedPromptID
+            bindings[idx].updatedAt = now
+        } else {
+            bindings.append(
+                AppPromptBinding(
+                    mode: normalizedMode,
+                    appBundleID: normalizedBundleID,
+                    appName: resolvedName,
+                    promptID: resolvedPromptID,
+                    createdAt: now,
+                    updatedAt: now
+                )
+            )
+        }
+
+        self.appPromptBindings = bindings
+    }
+
+    func removeAppPromptBinding(id: String) {
+        var bindings = self.appPromptBindings
+        bindings.removeAll { $0.id == id }
+        self.appPromptBindings = bindings
+    }
+
+    func removeAppPromptBinding(for mode: PromptMode, appBundleID: String?) {
+        guard let normalizedBundleID = Self.normalizeAppBundleID(appBundleID) else { return }
+        let normalizedMode = mode.normalized
+        var bindings = self.appPromptBindings
+        bindings.removeAll {
+            $0.mode.normalized == normalizedMode &&
+                $0.appBundleID == normalizedBundleID
+        }
+        self.appPromptBindings = bindings
+    }
+
+    /// Re-run prompt/profile normalization after profile mutations.
+    func reconcilePromptStateAfterProfileChanges() {
+        self.normalizePromptSelectionsIfNeeded()
+    }
+
+    private static func normalizeAppBundleID(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalized.isEmpty ? nil : normalized
     }
 
     /// Optional override for the built-in default dictation system prompt.
@@ -517,37 +700,104 @@ final class SettingsStore: ObservableObject {
         return "\(template)\n\(trimmedContext)"
     }
 
-    func effectivePromptBody(for mode: PromptMode) -> String {
-        if let profile = self.selectedPromptProfile(for: mode) {
-            let body = Self.stripBasePrompt(for: mode, from: profile.prompt)
+    func promptResolution(for mode: PromptMode, appBundleID: String? = nil) -> PromptResolution {
+        let normalizedMode = mode.normalized
+
+        if let binding = self.appPromptBinding(for: normalizedMode, appBundleID: appBundleID) {
+            if let promptID = binding.promptID,
+               let profile = self.dictationPromptProfiles.first(where: {
+                   $0.id == promptID &&
+                       $0.mode.normalized == normalizedMode
+               })
+            {
+                let body = Self.stripBasePrompt(for: normalizedMode, from: profile.prompt)
+                if !body.isEmpty {
+                    return PromptResolution(
+                        source: .appBindingProfile,
+                        profile: profile,
+                        appBinding: binding,
+                        promptBody: body,
+                        systemPrompt: Self.combineBasePrompt(for: normalizedMode, with: body)
+                    )
+                }
+            }
+
+            let fallback = self.defaultPromptResolution(
+                for: normalizedMode,
+                source: .appBindingDefault,
+                appBinding: binding
+            )
+            return fallback
+        }
+
+        if let profile = self.selectedPromptProfile(for: normalizedMode) {
+            let body = Self.stripBasePrompt(for: normalizedMode, from: profile.prompt)
             if !body.isEmpty {
-                return body
+                return PromptResolution(
+                    source: .selectedProfile,
+                    profile: profile,
+                    appBinding: nil,
+                    promptBody: body,
+                    systemPrompt: Self.combineBasePrompt(for: normalizedMode, with: body)
+                )
             }
         }
 
-        if let override = self.defaultPromptOverride(for: mode) {
-            return Self.stripBasePrompt(for: mode, from: override)
-        }
-
-        return Self.defaultPromptBodyText(for: mode)
+        return self.defaultPromptResolution(for: normalizedMode, source: .defaultOverride, appBinding: nil)
     }
 
-    func effectiveSystemPrompt(for mode: PromptMode) -> String {
-        if let profile = self.selectedPromptProfile(for: mode) {
-            let body = Self.stripBasePrompt(for: mode, from: profile.prompt)
-            if !body.isEmpty {
-                return Self.combineBasePrompt(for: mode, with: body)
-            }
-        }
+    func resolvedPromptProfile(for mode: PromptMode, appBundleID: String? = nil) -> DictationPromptProfile? {
+        self.promptResolution(for: mode, appBundleID: appBundleID).profile
+    }
 
+    func effectivePromptBody(for mode: PromptMode, appBundleID: String? = nil) -> String {
+        self.promptResolution(for: mode, appBundleID: appBundleID).promptBody
+    }
+
+    func effectiveSystemPrompt(for mode: PromptMode, appBundleID: String? = nil) -> String {
+        self.promptResolution(for: mode, appBundleID: appBundleID).systemPrompt
+    }
+
+    func effectivePromptSource(for mode: PromptMode, appBundleID: String? = nil) -> PromptResolutionSource {
+        self.promptResolution(for: mode, appBundleID: appBundleID).source
+    }
+
+    private func defaultPromptResolution(
+        for mode: PromptMode,
+        source: PromptResolutionSource,
+        appBinding: AppPromptBinding?
+    ) -> PromptResolution {
         if let override = self.defaultPromptOverride(for: mode) {
             let trimmedOverride = override.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmedOverride.isEmpty else { return override }
+            if trimmedOverride.isEmpty {
+                return PromptResolution(
+                    source: source,
+                    profile: nil,
+                    appBinding: appBinding,
+                    promptBody: "",
+                    systemPrompt: override
+                )
+            }
+
             let body = Self.stripBasePrompt(for: mode, from: trimmedOverride)
-            return Self.combineBasePrompt(for: mode, with: body)
+            return PromptResolution(
+                source: source,
+                profile: nil,
+                appBinding: appBinding,
+                promptBody: body,
+                systemPrompt: Self.combineBasePrompt(for: mode, with: body)
+            )
         }
 
-        return Self.defaultSystemPromptText(for: mode)
+        let defaultBody = Self.defaultPromptBodyText(for: mode)
+        let fallbackSource: PromptResolutionSource = source == .defaultOverride ? .builtInDefault : source
+        return PromptResolution(
+            source: fallbackSource,
+            profile: nil,
+            appBinding: appBinding,
+            promptBody: defaultBody,
+            systemPrompt: Self.combineBasePrompt(for: mode, with: defaultBody)
+        )
     }
 
     // MARK: - Model Reasoning Configuration
@@ -1711,6 +1961,72 @@ final class SettingsStore: ObservableObject {
         {
             self.selectedEditPromptID = nil
         }
+
+        let validPromptIDsByMode: [PromptMode: Set<String>] = [
+            .dictate: Set(self.dictationPromptProfiles.filter { $0.mode.normalized == .dictate }.map(\.id)),
+            .edit: Set(self.dictationPromptProfiles.filter { $0.mode.normalized == .edit }.map(\.id)),
+        ]
+
+        var normalizedBindings: [AppPromptBinding] = []
+        var dedupe: [String: AppPromptBinding] = [:]
+        var didMutateBindings = false
+
+        for binding in self.appPromptBindings {
+            let normalizedMode = binding.mode.normalized
+            guard let normalizedBundleID = Self.normalizeAppBundleID(binding.appBundleID) else {
+                didMutateBindings = true
+                continue
+            }
+
+            var cleaned = binding
+            if cleaned.mode != normalizedMode {
+                cleaned.mode = normalizedMode
+                didMutateBindings = true
+            }
+            if cleaned.appBundleID != normalizedBundleID {
+                cleaned.appBundleID = normalizedBundleID
+                didMutateBindings = true
+            }
+
+            let trimmedName = cleaned.appName.trimmingCharacters(in: .whitespacesAndNewlines)
+            let resolvedName = trimmedName.isEmpty ? normalizedBundleID : trimmedName
+            if cleaned.appName != resolvedName {
+                cleaned.appName = resolvedName
+                didMutateBindings = true
+            }
+
+            if let promptID = cleaned.promptID,
+               validPromptIDsByMode[normalizedMode]?.contains(promptID) != true
+            {
+                cleaned.promptID = nil
+                didMutateBindings = true
+            }
+
+            let dedupeKey = "\(normalizedMode.rawValue)|\(normalizedBundleID)"
+            if let existing = dedupe[dedupeKey] {
+                // Keep the most recently updated binding when duplicates exist.
+                if cleaned.updatedAt >= existing.updatedAt {
+                    dedupe[dedupeKey] = cleaned
+                }
+                didMutateBindings = true
+            } else {
+                dedupe[dedupeKey] = cleaned
+            }
+        }
+
+        normalizedBindings = Array(dedupe.values).sorted { lhs, rhs in
+            if lhs.mode.normalized != rhs.mode.normalized {
+                return lhs.mode.normalized.rawValue < rhs.mode.normalized.rawValue
+            }
+            if lhs.appName.localizedCaseInsensitiveCompare(rhs.appName) != .orderedSame {
+                return lhs.appName.localizedCaseInsensitiveCompare(rhs.appName) == .orderedAscending
+            }
+            return lhs.appBundleID < rhs.appBundleID
+        }
+
+        if didMutateBindings || normalizedBindings.count != self.appPromptBindings.count {
+            self.appPromptBindings = normalizedBindings
+        }
     }
 
     private func migrateOverlayBottomOffsetTo50IfNeeded() {
@@ -2598,6 +2914,7 @@ private extension SettingsStore {
 
         // Dictation Prompt Profiles (multi-prompt system)
         static let dictationPromptProfiles = "DictationPromptProfiles"
+        static let appPromptBindings = "AppPromptBindings"
         static let selectedDictationPromptID = "SelectedDictationPromptID"
         static let selectedEditPromptID = "SelectedEditPromptID"
         static let selectedWritePromptID = "SelectedWritePromptID" // legacy fallback key

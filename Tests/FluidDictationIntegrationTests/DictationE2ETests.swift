@@ -6,6 +6,12 @@ import XCTest
 final class DictationE2ETests: XCTestCase {
     private let enableTranscriptionSoundsKey = "EnableTranscriptionSounds"
     private let transcriptionStartSoundKey = "TranscriptionStartSound"
+    private let dictationPromptProfilesKey = "DictationPromptProfiles"
+    private let appPromptBindingsKey = "AppPromptBindings"
+    private let selectedDictationPromptIDKey = "SelectedDictationPromptID"
+    private let selectedEditPromptIDKey = "SelectedEditPromptID"
+    private let defaultDictationPromptOverrideKey = "DefaultDictationPromptOverride"
+    private let defaultEditPromptOverrideKey = "DefaultEditPromptOverride"
 
     func testTranscriptionStartSound_noneOptionHasNoFile() {
         XCTAssertEqual(SettingsStore.TranscriptionStartSound.none.displayName, "None")
@@ -68,6 +74,109 @@ final class DictationE2ETests: XCTestCase {
         )
     }
 
+    func testAppPromptBinding_profileOverridesModeSelection() {
+        self.withPromptSettingsRestored {
+            let settings = SettingsStore.shared
+
+            let global = SettingsStore.DictationPromptProfile(
+                name: "Global Dictate",
+                prompt: "Global dictate prompt",
+                mode: .dictate
+            )
+            let mail = SettingsStore.DictationPromptProfile(
+                name: "Mail Dictate",
+                prompt: "Mail dictate prompt",
+                mode: .dictate
+            )
+
+            settings.dictationPromptProfiles = [global, mail]
+            settings.selectedDictationPromptID = global.id
+            settings.appPromptBindings = [
+                SettingsStore.AppPromptBinding(
+                    mode: .dictate,
+                    appBundleID: "com.apple.mail",
+                    appName: "Mail",
+                    promptID: mail.id
+                ),
+            ]
+
+            let mailResolution = settings.promptResolution(for: .dictate, appBundleID: "com.apple.mail")
+            XCTAssertEqual(mailResolution.source, .appBindingProfile)
+            XCTAssertEqual(mailResolution.profile?.id, mail.id)
+
+            let notesResolution = settings.promptResolution(for: .dictate, appBundleID: "com.apple.notes")
+            XCTAssertEqual(notesResolution.source, .selectedProfile)
+            XCTAssertEqual(notesResolution.profile?.id, global.id)
+        }
+    }
+
+    func testAppPromptBinding_defaultFallbackIgnoresGlobalSelection() {
+        self.withPromptSettingsRestored {
+            let settings = SettingsStore.shared
+
+            let global = SettingsStore.DictationPromptProfile(
+                name: "Global Dictate",
+                prompt: "Global dictate prompt",
+                mode: .dictate
+            )
+
+            settings.dictationPromptProfiles = [global]
+            settings.selectedDictationPromptID = global.id
+            settings.appPromptBindings = [
+                SettingsStore.AppPromptBinding(
+                    mode: .dictate,
+                    appBundleID: "com.apple.mail",
+                    appName: "Mail",
+                    promptID: nil
+                ),
+            ]
+
+            let mailResolution = settings.promptResolution(for: .dictate, appBundleID: "com.apple.mail")
+            XCTAssertEqual(mailResolution.source, .appBindingDefault)
+            XCTAssertNil(mailResolution.profile)
+            XCTAssertEqual(
+                mailResolution.systemPrompt,
+                SettingsStore.defaultSystemPromptText(for: .dictate)
+            )
+
+            let otherResolution = settings.promptResolution(for: .dictate, appBundleID: "com.apple.notes")
+            XCTAssertEqual(otherResolution.source, .selectedProfile)
+            XCTAssertEqual(otherResolution.profile?.id, global.id)
+        }
+    }
+
+    func testAppPromptBindings_reconcileInvalidPromptAndLegacyMode() {
+        self.withPromptSettingsRestored {
+            let settings = SettingsStore.shared
+
+            let editProfile = SettingsStore.DictationPromptProfile(
+                name: "Edit",
+                prompt: "Edit prompt",
+                mode: .edit
+            )
+            settings.dictationPromptProfiles = [editProfile]
+            settings.appPromptBindings = [
+                SettingsStore.AppPromptBinding(
+                    mode: .rewrite,
+                    appBundleID: " COM.APPLE.SAFARI ",
+                    appName: "Safari",
+                    promptID: "missing-profile"
+                ),
+            ]
+
+            settings.reconcilePromptStateAfterProfileChanges()
+
+            guard let binding = settings.appPromptBindings.first else {
+                XCTFail("Expected normalized app prompt binding")
+                return
+            }
+
+            XCTAssertEqual(binding.mode, .edit)
+            XCTAssertEqual(binding.appBundleID, "com.apple.safari")
+            XCTAssertNil(binding.promptID)
+        }
+    }
+
     private static func modelDirectoryForRun() -> URL {
         // Use a stable path on CI so GitHub Actions cache can speed up runs.
         if ProcessInfo.processInfo.environment["GITHUB_ACTIONS"] == "true" ||
@@ -120,5 +229,19 @@ final class DictationE2ETests: XCTestCase {
         }
 
         run()
+    }
+
+    private func withPromptSettingsRestored(run: () -> Void) {
+        self.withRestoredDefaults(
+            keys: [
+                self.dictationPromptProfilesKey,
+                self.appPromptBindingsKey,
+                self.selectedDictationPromptIDKey,
+                self.selectedEditPromptIDKey,
+                self.defaultDictationPromptOverrideKey,
+                self.defaultEditPromptOverrideKey,
+            ],
+            run: run
+        )
     }
 }

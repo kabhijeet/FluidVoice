@@ -3,6 +3,7 @@ import Combine
 import CryptoKit
 import Security
 import SwiftUI
+import UniformTypeIdentifiers
 
 @MainActor
 final class AIEnhancementSettingsViewModel: ObservableObject {
@@ -94,12 +95,21 @@ final class AIEnhancementSettingsViewModel: ObservableObject {
         let isBuiltIn: Bool
     }
 
+    struct AppBindingTarget: Identifiable, Hashable {
+        let bundleID: String
+        let name: String
+
+        var id: String { self.bundleID }
+    }
+
     @Published var cachedProviderItems: [ProviderItemData] = []
     @Published var cachedVerifiedProviderItems: [ProviderItemData] = []
     @Published var cachedUnverifiedProviderItems: [ProviderItemData] = []
 
     // Dictation Prompt Profiles UI
     @Published var dictationPromptProfiles: [SettingsStore.DictationPromptProfile] = []
+    @Published var appPromptBindings: [SettingsStore.AppPromptBinding] = []
+    @Published var appPromptBindingErrorMessage: String = ""
     @Published var selectedDictationPromptID: String? = nil
     @Published var selectedEditPromptID: String? = nil
     @Published var promptEditorMode: PromptEditorMode? = nil
@@ -140,6 +150,7 @@ final class AIEnhancementSettingsViewModel: ObservableObject {
         self.providerAPIKeys = self.settings.providerAPIKeys
         self.savedProviders = self.settings.savedProviders
         self.dictationPromptProfiles = self.settings.dictationPromptProfiles
+        self.appPromptBindings = self.settings.appPromptBindings
         self.selectedDictationPromptID = self.settings.selectedDictationPromptID
         self.selectedEditPromptID = self.settings.selectedEditPromptID
 
@@ -1247,6 +1258,7 @@ final class AIEnhancementSettingsViewModel: ObservableObject {
         var profiles = self.settings.dictationPromptProfiles
         profiles.removeAll { $0.id == id }
         self.settings.dictationPromptProfiles = profiles
+        self.settings.reconcilePromptStateAfterProfileChanges()
 
         // If the deleted profile was active, reset to Default
         if let deleted = self.dictationPromptProfiles.first(where: { $0.id == id }),
@@ -1255,7 +1267,8 @@ final class AIEnhancementSettingsViewModel: ObservableObject {
             self.settings.setSelectedPromptID(nil, for: deleted.mode)
         }
 
-        self.dictationPromptProfiles = profiles
+        self.dictationPromptProfiles = self.settings.dictationPromptProfiles
+        self.appPromptBindings = self.settings.appPromptBindings
         self.selectedDictationPromptID = self.settings.selectedDictationPromptID
         self.selectedEditPromptID = self.settings.selectedEditPromptID
 
@@ -1353,10 +1366,208 @@ final class AIEnhancementSettingsViewModel: ObservableObject {
         }
 
         self.settings.dictationPromptProfiles = profiles
-        self.dictationPromptProfiles = profiles
+        self.settings.reconcilePromptStateAfterProfileChanges()
+        self.dictationPromptProfiles = self.settings.dictationPromptProfiles
+        self.appPromptBindings = self.settings.appPromptBindings
         self.selectedDictationPromptID = self.settings.selectedDictationPromptID
         self.selectedEditPromptID = self.settings.selectedEditPromptID
         self.closePromptEditor()
+    }
+
+    func appBindings(for mode: SettingsStore.PromptMode) -> [SettingsStore.AppPromptBinding] {
+        self.appPromptBindings
+            .filter { $0.mode.normalized == mode.normalized }
+            .sorted { lhs, rhs in
+                if lhs.appName.localizedCaseInsensitiveCompare(rhs.appName) != .orderedSame {
+                    return lhs.appName.localizedCaseInsensitiveCompare(rhs.appName) == .orderedAscending
+                }
+                return lhs.appBundleID < rhs.appBundleID
+            }
+    }
+
+    func appBindingTargets(for mode: SettingsStore.PromptMode) -> [AppBindingTarget] {
+        let boundBundleIDs = Set(
+            self.appBindings(for: mode)
+                .map { self.normalizedBundleID($0.appBundleID) }
+        )
+
+        var candidatesByBundleID: [String: AppBindingTarget] = [:]
+
+        if let focusedTarget = self.resolveBindingTargetApp() {
+            let normalized = self.normalizedBundleID(focusedTarget.bundleID)
+            if !boundBundleIDs.contains(normalized) {
+                candidatesByBundleID[normalized] = AppBindingTarget(bundleID: normalized, name: focusedTarget.name)
+            }
+        }
+
+        for application in NSWorkspace.shared.runningApplications {
+            guard let target = self.bindingTarget(from: application) else { continue }
+            let normalized = self.normalizedBundleID(target.bundleID)
+            guard !boundBundleIDs.contains(normalized) else { continue }
+            if candidatesByBundleID[normalized] == nil {
+                candidatesByBundleID[normalized] = AppBindingTarget(bundleID: normalized, name: target.name)
+            }
+        }
+
+        return candidatesByBundleID.values.sorted { lhs, rhs in
+            if lhs.name.localizedCaseInsensitiveCompare(rhs.name) != .orderedSame {
+                return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+            }
+            return lhs.bundleID < rhs.bundleID
+        }
+    }
+
+    func addAppPromptBinding(for mode: SettingsStore.PromptMode, appBundleID: String, appName: String) {
+        let normalizedBundleID = self.normalizedBundleID(appBundleID)
+        guard !normalizedBundleID.isEmpty else {
+            self.appPromptBindingErrorMessage = "The selected app is missing a valid bundle identifier."
+            return
+        }
+
+        let trimmedName = appName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedName = trimmedName.isEmpty ? normalizedBundleID : trimmedName
+        let existingPromptID = self.settings.appPromptBinding(for: mode, appBundleID: normalizedBundleID)?.promptID
+        let resolvedPromptID = existingPromptID ?? self.selectedPromptID(for: mode)
+
+        self.appPromptBindingErrorMessage = ""
+        self.settings.upsertAppPromptBinding(
+            for: mode.normalized,
+            appBundleID: normalizedBundleID,
+            appName: resolvedName,
+            promptID: resolvedPromptID
+        )
+        self.appPromptBindings = self.settings.appPromptBindings
+    }
+
+    func addCurrentAppPromptBinding(for mode: SettingsStore.PromptMode) {
+        guard let target = self.resolveBindingTargetApp() else {
+            self.appPromptBindingErrorMessage = "Could not detect a target app. Focus another app window (outside FluidVoice) and try again."
+            DebugLogger.shared.info(
+                "App prompt binding skipped: unable to resolve non-Fluid target app",
+                source: "AISettingsView"
+            )
+            return
+        }
+        self.addAppPromptBinding(for: mode, appBundleID: target.bundleID, appName: target.name)
+    }
+
+    func addAppPromptBindingFromFilePicker(for mode: SettingsStore.PromptMode) {
+        let panel = NSOpenPanel()
+        panel.title = "Choose Application"
+        panel.message = "Pick an app to add an app-specific prompt override."
+        panel.prompt = "Add App"
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.treatsFilePackagesAsDirectories = false
+        panel.allowedContentTypes = [.application]
+        panel.directoryURL = URL(fileURLWithPath: "/Applications", isDirectory: true)
+
+        guard panel.runModal() == .OK, let appURL = panel.url else { return }
+
+        guard let target = self.bindingTarget(fromApplicationURL: appURL) else {
+            self.appPromptBindingErrorMessage = "Could not read that app. Please choose a valid .app bundle."
+            return
+        }
+
+        self.addAppPromptBinding(for: mode, appBundleID: target.bundleID, appName: target.name)
+    }
+
+    func removeAppPromptBinding(_ binding: SettingsStore.AppPromptBinding) {
+        self.settings.removeAppPromptBinding(id: binding.id)
+        self.appPromptBindings = self.settings.appPromptBindings
+    }
+
+    func setPromptID(_ promptID: String?, for binding: SettingsStore.AppPromptBinding) {
+        self.settings.upsertAppPromptBinding(
+            for: binding.mode,
+            appBundleID: binding.appBundleID,
+            appName: binding.appName,
+            promptID: promptID
+        )
+        self.appPromptBindings = self.settings.appPromptBindings
+    }
+
+    func promptName(for mode: SettingsStore.PromptMode, promptID: String?) -> String {
+        guard let promptID = promptID,
+              let profile = self.dictationPromptProfiles.first(where: {
+                  $0.id == promptID &&
+                      $0.mode.normalized == mode.normalized
+              })
+        else {
+            return "Default"
+        }
+
+        let trimmed = profile.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "Untitled Prompt" : trimmed
+    }
+
+    private func resolveBindingTargetApp() -> (name: String, bundleID: String)? {
+        if let pid = NotchContentState.shared.recordingTargetPID,
+           let app = NSRunningApplication(processIdentifier: pid),
+           let target = self.bindingTarget(from: app)
+        {
+            return target
+        }
+
+        if let app = ActiveAppMonitor.shared.activeApp,
+           let target = self.bindingTarget(from: app)
+        {
+            return target
+        }
+
+        if let app = NSWorkspace.shared.frontmostApplication,
+           let target = self.bindingTarget(from: app)
+        {
+            return target
+        }
+
+        return nil
+    }
+
+    private func bindingTarget(from application: NSRunningApplication) -> (name: String, bundleID: String)? {
+        guard application.activationPolicy == .regular,
+              let bundleID = application.bundleIdentifier,
+              bundleID != Bundle.main.bundleIdentifier
+        else {
+            return nil
+        }
+
+        let normalizedBundleID = self.normalizedBundleID(bundleID)
+        guard !normalizedBundleID.isEmpty else { return nil }
+
+        let trimmedName = application.localizedName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let resolvedName = trimmedName.isEmpty ? normalizedBundleID : trimmedName
+        return (name: resolvedName, bundleID: normalizedBundleID)
+    }
+
+    private func bindingTarget(fromApplicationURL appURL: URL) -> (name: String, bundleID: String)? {
+        guard appURL.pathExtension.lowercased() == "app",
+              let appBundle = Bundle(url: appURL),
+              let bundleID = appBundle.bundleIdentifier,
+              bundleID != Bundle.main.bundleIdentifier
+        else {
+            return nil
+        }
+
+        let normalizedBundleID = self.normalizedBundleID(bundleID)
+        guard !normalizedBundleID.isEmpty else { return nil }
+
+        let displayName = (appBundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let bundleName = (appBundle.object(forInfoDictionaryKey: "CFBundleName") as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let fallbackName = appURL.deletingPathExtension().lastPathComponent
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let resolvedName = [displayName, bundleName, fallbackName]
+            .first(where: { !$0.isEmpty }) ?? normalizedBundleID
+
+        return (name: resolvedName, bundleID: normalizedBundleID)
+    }
+
+    private func normalizedBundleID(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
     func selectedPromptID(for mode: SettingsStore.PromptMode) -> String? {

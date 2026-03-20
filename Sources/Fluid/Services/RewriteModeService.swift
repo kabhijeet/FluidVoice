@@ -12,6 +12,7 @@ final class RewriteModeService: ObservableObject {
     @Published var isProcessing = false
     @Published var conversationHistory: [Message] = []
     @Published var isWriteMode: Bool = false // true = no text selected (write/improve), false = text selected (rewrite)
+    private var promptAppBundleID: String?
 
     private let textSelectionService = TextSelectionService.shared
     private let typingService = TypingService()
@@ -180,6 +181,12 @@ final class RewriteModeService: ObservableObject {
         self.conversationHistory = []
         self.isWriteMode = false
         self.thinkingBuffer = []
+        self.promptAppBundleID = nil
+    }
+
+    func setPromptAppBundleID(_ bundleID: String?) {
+        let trimmed = bundleID?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        self.promptAppBundleID = (trimmed?.isEmpty == true) ? nil : trimmed
     }
 
     // MARK: - LLM Integration
@@ -187,16 +194,17 @@ final class RewriteModeService: ObservableObject {
     private func callLLM(messages: [Message], isWriteMode: Bool) async throws -> String {
         let settings = SettingsStore.shared
         let promptMode: SettingsStore.PromptMode = .edit
-        let selectedProfile = settings.selectedPromptProfile(for: promptMode)
+        let appBundleID = self.promptAppBundleID
+        let selectedProfile = settings.resolvedPromptProfile(for: promptMode, appBundleID: appBundleID)
         let selectedPromptName: String = {
             if let profile = selectedProfile {
                 return profile.name.isEmpty ? "Untitled Prompt" : profile.name
             }
             return "Default Edit"
         }()
-        let promptBody = settings.effectivePromptBody(for: promptMode)
+        let promptBody = settings.effectivePromptBody(for: promptMode, appBundleID: appBundleID)
         let builtInDefaultPrompt = SettingsStore.defaultSystemPromptText(for: promptMode)
-        let systemPromptBeforeContext = settings.effectiveSystemPrompt(for: promptMode)
+        let systemPromptBeforeContext = settings.effectiveSystemPrompt(for: promptMode, appBundleID: appBundleID)
         // Use global provider/model when linked, otherwise use Edit Mode's independent settings.
         let providerID: String = {
             if settings.rewriteModeLinkedToGlobal {
@@ -278,7 +286,7 @@ final class RewriteModeService: ObservableObject {
         self.appendDiagnosticLog(
             "LLM config | writeMode=\(isWriteMode) | linkedToGlobal=\(settings.rewriteModeLinkedToGlobal) | " +
                 "provider=\(providerID) | model=\(model) | profile=\(selectedPromptName) | " +
-                "contextChars=\(contextText.count) | contextInjected=\(!contextBlock.isEmpty)"
+                "contextChars=\(contextText.count) | contextInjected=\(!contextBlock.isEmpty) | appBundle=\(appBundleID ?? "none")"
         )
         let apiKey = settings.getAPIKey(for: providerID) ?? ""
 

@@ -1217,6 +1217,22 @@ struct ContentView: View {
         return nil
     }
 
+    private func captureRecordingContext() {
+        // Capture the focused target PID BEFORE any overlay/UI changes.
+        // Used to restore focus when the user interacts with overlay dropdowns.
+        let focusedPID = TypingService.captureSystemFocusedPID()
+            ?? NSWorkspace.shared.frontmostApplication?.processIdentifier
+        NotchContentState.shared.recordingTargetPID = focusedPID
+
+        let info = self.getCurrentAppInfo()
+        self.recordingAppInfo = info
+        self.rewriteModeService.setPromptAppBundleID(info.bundleId)
+        DebugLogger.shared.debug(
+            "Captured recording app context: app=\(info.name), bundleId=\(info.bundleId), title=\(info.windowTitle)",
+            source: "ContentView"
+        )
+    }
+
     // MARK: - Commented out app-specific prompts - using general processing only
 
     /*
@@ -1330,8 +1346,10 @@ struct ContentView: View {
 
     /// Build a general system prompt with voice editing commands support
     private func buildSystemPrompt(appInfo: (name: String, bundleId: String, windowTitle: String)) -> String {
-        _ = appInfo
-        return SettingsStore.shared.effectiveSystemPrompt(for: .dictate)
+        return SettingsStore.shared.effectiveSystemPrompt(
+            for: .dictate,
+            appBundleID: appInfo.bundleId
+        )
     }
 
     private var shouldTracePromptProcessing: Bool {
@@ -1424,7 +1442,10 @@ struct ContentView: View {
                 let appInfo = self.recordingAppInfo ?? self.getCurrentAppInfo()
                 let systemPrompt = self.buildSystemPrompt(appInfo: appInfo)
                 if self.shouldTracePromptProcessing {
-                    let selectedProfile = SettingsStore.shared.selectedPromptProfile(for: .dictate)
+                    let selectedProfile = SettingsStore.shared.resolvedPromptProfile(
+                        for: .dictate,
+                        appBundleID: appInfo.bundleId
+                    )
                     let selectedPromptName: String = {
                         if let profile = selectedProfile {
                             return profile.name.isEmpty ? "Untitled Prompt" : profile.name
@@ -1432,7 +1453,10 @@ struct ContentView: View {
                         return "Default Dictate"
                     }()
                     self.logDictationPromptTrace("Selected prompt profile", value: selectedPromptName)
-                    self.logDictationPromptTrace("Prompt body (custom/default body)", value: SettingsStore.shared.effectivePromptBody(for: .dictate))
+                    self.logDictationPromptTrace(
+                        "Prompt body (custom/default body)",
+                        value: SettingsStore.shared.effectivePromptBody(for: .dictate, appBundleID: appInfo.bundleId)
+                    )
                     self.logDictationPromptTrace("Built-in default system prompt (baseline)", value: SettingsStore.defaultSystemPromptText(for: .dictate))
                     self.logDictationPromptTrace("Final system prompt sent to model", value: systemPrompt)
                     self.logDictationPromptTrace("Input transcription (Q)", value: inputText)
@@ -1468,7 +1492,10 @@ struct ContentView: View {
         }()
         DebugLogger.shared.debug("Using app context for AI: app=\(appInfo.name), bundleId=\(appInfo.bundleId), title=\(appInfo.windowTitle)", source: "ContentView")
         if self.shouldTracePromptProcessing {
-            let selectedProfile = SettingsStore.shared.selectedPromptProfile(for: .dictate)
+            let selectedProfile = SettingsStore.shared.resolvedPromptProfile(
+                for: .dictate,
+                appBundleID: appInfo.bundleId
+            )
             let selectedPromptName: String = {
                 if let profile = selectedProfile {
                     return profile.name.isEmpty ? "Untitled Prompt" : profile.name
@@ -1476,7 +1503,10 @@ struct ContentView: View {
                 return "Default Dictate"
             }()
             self.logDictationPromptTrace("Selected prompt profile", value: selectedPromptName)
-            self.logDictationPromptTrace("Prompt body (custom/default body)", value: SettingsStore.shared.effectivePromptBody(for: .dictate))
+            self.logDictationPromptTrace(
+                "Prompt body (custom/default body)",
+                value: SettingsStore.shared.effectivePromptBody(for: .dictate, appBundleID: appInfo.bundleId)
+            )
             self.logDictationPromptTrace("Built-in default system prompt (baseline)", value: SettingsStore.defaultSystemPromptText(for: .dictate))
             self.logDictationPromptTrace("Prompt override in use", value: (overrideSystemPrompt?.isEmpty == false) ? "yes" : "no")
             if let overrideSystemPrompt, !overrideSystemPrompt.isEmpty {
@@ -1636,7 +1666,8 @@ struct ContentView: View {
         // If this was a rewrite recording, process the rewrite instead of typing
         if wasRewriteMode {
             DebugLogger.shared.info("Processing rewrite with instruction: \(transcribedText)", source: "ContentView")
-            await self.processRewriteWithVoiceInstruction(transcribedText)
+            let appInfo = self.recordingAppInfo ?? self.getCurrentAppInfo()
+            await self.processRewriteWithVoiceInstruction(transcribedText, appInfo: appInfo)
             AnalyticsService.shared.capture(
                 .transcriptionCompleted,
                 properties: [
@@ -1968,7 +1999,11 @@ struct ContentView: View {
 
     // MARK: - Rewrite Mode Voice Processing
 
-    private func processRewriteWithVoiceInstruction(_ instruction: String) async {
+    private func processRewriteWithVoiceInstruction(
+        _ instruction: String,
+        appInfo: (name: String, bundleId: String, windowTitle: String)
+    ) async {
+        self.rewriteModeService.setPromptAppBundleID(appInfo.bundleId)
         let hasOriginalText = !self.rewriteModeService.originalText.isEmpty
         DebugLogger.shared.info("Processing \(hasOriginalText ? "rewrite" : "write/improve") - instruction: '\(instruction)', originalText length: \(self.rewriteModeService.originalText.count)", source: "ContentView")
 
@@ -2127,6 +2162,8 @@ struct ContentView: View {
             "ContentView: startRecording() for model=\(model.displayName), supportsStreaming=\(model.supportsStreaming)",
             source: "ContentView"
         )
+
+        self.captureRecordingContext()
         self.setActiveRecordingMode(.dictate)
 
         // Ensure normal dictation mode is set (command/rewrite modes set their own)
@@ -2138,15 +2175,6 @@ struct ContentView: View {
             TranscriptionSoundPlayer.shared.playStartSound()
         }
 
-        // Capture the focused target PID BEFORE any overlay/UI changes.
-        // Used to restore focus when the user interacts with overlay dropdowns (e.g. prompt selection).
-        let focusedPID = TypingService.captureSystemFocusedPID()
-            ?? NSWorkspace.shared.frontmostApplication?.processIdentifier
-        NotchContentState.shared.recordingTargetPID = focusedPID
-
-        let info = self.getCurrentAppInfo()
-        self.recordingAppInfo = info
-        DebugLogger.shared.debug("Captured recording app context: app=\(info.name), bundleId=\(info.bundleId), title=\(info.windowTitle)", source: "ContentView")
         Task {
             await self.asr.start()
         }
@@ -2441,6 +2469,7 @@ struct ContentView: View {
                     "ContentView: selected model for dictate hotkey=\(SettingsStore.shared.selectedSpeechModel.displayName)",
                     source: "ContentView"
                 )
+                self.captureRecordingContext()
                 self.setActiveRecordingMode(.dictate)
                 self.rewriteModeService.clearState()
                 self.menuBarManager.setOverlayMode(.dictation)
@@ -2460,6 +2489,7 @@ struct ContentView: View {
             },
             commandModeCallback: {
                 DebugLogger.shared.info("Command mode triggered", source: "ContentView")
+                self.captureRecordingContext()
 
                 // Set flag so stopAndProcessTranscription knows to process as command
                 self.setActiveRecordingMode(.command)
@@ -2480,6 +2510,8 @@ struct ContentView: View {
                 }
             },
             rewriteModeCallback: {
+                self.captureRecordingContext()
+
                 // Try to capture text first while still in the other app
                 let captured = self.rewriteModeService.captureSelectedText()
                 DebugLogger.shared.info("Rewrite mode triggered, text captured: \(captured)", source: "ContentView")

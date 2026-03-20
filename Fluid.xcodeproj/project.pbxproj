@@ -408,7 +408,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = V4J43B279J;
+				DEVELOPMENT_TEAM = J67LH9U7BN;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_CODE_COVERAGE = NO;
 				ENABLE_FILE_ACCESS_DOWNLOADS_FOLDER = readwrite;
@@ -462,7 +462,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = V4J43B279J;
+				DEVELOPMENT_TEAM = J67LH9U7BN;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_CODE_COVERAGE = NO;
 				ENABLE_FILE_ACCESS_DOWNLOADS_FOLDER = readwrite;
@@ -623,8 +623,8 @@
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/ejbills/mediaremote-adapter";
 			requirement = {
-				kind = branch;
 				branch = master;
+				kind = branch;
 			};
 		};
 		7CE006BB2E80EBE600DDCCD6 /* XCRemoteSwiftPackageReference "AppUpdater" */ = {
