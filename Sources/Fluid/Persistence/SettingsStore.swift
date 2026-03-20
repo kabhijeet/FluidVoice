@@ -1125,6 +1125,21 @@ final class SettingsStore: ObservableObject {
         }
     }
 
+    var betaReleasesEnabled: Bool {
+        get {
+            let value = self.defaults.object(forKey: Keys.betaReleasesEnabled)
+            return value as? Bool ?? false // Default to stable-only updates
+        }
+        set {
+            objectWillChange.send()
+            self.defaults.set(newValue, forKey: Keys.betaReleasesEnabled)
+
+            // Allow immediate re-check when users change beta opt-in.
+            self.lastUpdateCheckDate = nil
+            self.clearUpdateSnooze()
+        }
+    }
+
     var lastUpdateCheckDate: Date? {
         get {
             return self.defaults.object(forKey: Keys.lastUpdateCheckDate) as? Date
@@ -2533,6 +2548,7 @@ private extension SettingsStore {
         static let copyTranscriptionToClipboard = "CopyTranscriptionToClipboard"
         static let textInsertionMode = "TextInsertionMode"
         static let autoUpdateCheckEnabled = "AutoUpdateCheckEnabled"
+        static let betaReleasesEnabled = "BetaReleasesEnabled"
         static let lastUpdateCheckDate = "LastUpdateCheckDate"
         static let updatePromptSnoozedUntil = "UpdatePromptSnoozedUntil"
         static let snoozedUpdateVersion = "SnoozedUpdateVersion"
