@@ -46,8 +46,8 @@ final class TypingService {
         case appScriptCaretMovedExpectedDistance = "appscript_caret_moved_expected_distance"
         case fieldContainsText = "field_contains_text"
         case caretMovedExpectedDistance = "caret_moved_expected_distance"
-        case timeout = "timeout"
-        case unavailable = "unavailable"
+        case timeout
+        case unavailable
     }
 
     private static let focusSnapshotQueue = DispatchQueue(label: "TypingService.FocusSnapshot")
