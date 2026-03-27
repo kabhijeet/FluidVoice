@@ -32,6 +32,12 @@ final class TypingService {
         let items: [PasteboardItemSnapshot]
     }
 
+    private struct FocusedTextSnapshot {
+        let pid: pid_t
+        let value: String?
+        let selectedRange: CFRange?
+    }
+
     private static let focusSnapshotQueue = DispatchQueue(label: "TypingService.FocusSnapshot")
     private static let pasteboardRestoreQueue = DispatchQueue(label: "TypingService.PasteboardRestore", qos: .utility)
     private static var focusSnapshot: FocusSnapshot?
@@ -514,6 +520,7 @@ final class TypingService {
             return false
         }
         let temporaryChangeCount = pasteboard.changeCount
+        let focusedTextSnapshot = self.captureFocusedTextSnapshot()
 
         let actionResult = action()
         guard actionResult else {
@@ -522,13 +529,18 @@ final class TypingService {
             return false
         }
 
-        Self.pasteboardRestoreQueue.asyncAfter(deadline: .now() + .microseconds(Int(restoreDelayMicros))) {
+        Self.pasteboardRestoreQueue.async {
+            let verified = self.waitForFocusedTextVerification(
+                from: focusedTextSnapshot,
+                expectedText: text,
+                timeoutMicros: restoreDelayMicros
+            )
             let pasteboard = NSPasteboard.general
 
             // Avoid clobbering user clipboard changes that happened after our insertion.
             if pasteboard.changeCount == temporaryChangeCount || pasteboard.string(forType: .string) == text {
                 self.restorePasteboardSnapshot(snapshot, to: pasteboard)
-                self.log("[TypingService] Restored previous clipboard snapshot")
+                self.log("[TypingService] Restored previous clipboard snapshot (verified=\(verified))")
             } else {
                 self.log("[TypingService] Skipped clipboard restore because clipboard changed externally")
             }
@@ -552,7 +564,7 @@ final class TypingService {
             usleep(80_000)
         }
 
-        return self.withTemporaryPasteboardString(text, restoreDelayMicros: 450_000) {
+        return self.withTemporaryPasteboardString(text, restoreDelayMicros: 5_000_000) {
             let vKey = Self.pasteVirtualKeyCode
             guard let cmdVDown = CGEvent(keyboardEventSource: nil, virtualKey: vKey, keyDown: true),
                   let cmdVUp = CGEvent(keyboardEventSource: nil, virtualKey: vKey, keyDown: false)
@@ -638,7 +650,7 @@ final class TypingService {
     /// More reliable but slightly slower - copies text to clipboard then pastes
     private func insertTextViaClipboard(_ text: String) -> Bool {
         self.log("[TypingService] Starting clipboard-based insertion")
-        return self.withTemporaryPasteboardString(text, restoreDelayMicros: 450_000) {
+        return self.withTemporaryPasteboardString(text, restoreDelayMicros: 5_000_000) {
             let vKey = Self.pasteVirtualKeyCode
             guard let cmdVDown = CGEvent(keyboardEventSource: nil, virtualKey: vKey, keyDown: true),
                   let cmdVUp = CGEvent(keyboardEventSource: nil, virtualKey: vKey, keyDown: false)
@@ -665,7 +677,7 @@ final class TypingService {
             return false
         }
 
-        return self.withTemporaryPasteboardString(text, restoreDelayMicros: 450_000) {
+        return self.withTemporaryPasteboardString(text, restoreDelayMicros: 5_000_000) {
             let escapedAppName = appName.replacingOccurrences(of: "\"", with: "\\\"")
             let script = """
             tell application "System Events"
@@ -879,6 +891,62 @@ final class TypingService {
         var range = CFRange()
         let ok = AXValueGetValue(unsafeBitCast(axValue, to: AXValue.self), .cfRange, &range)
         return ok ? range : nil
+    }
+
+    private func captureFocusedTextSnapshot() -> FocusedTextSnapshot? {
+        guard let focusInfo = self.getSystemFocusedElementAndPID() else { return nil }
+        return FocusedTextSnapshot(
+            pid: focusInfo.pid,
+            value: self.getElementStringValue(focusInfo.element),
+            selectedRange: self.getSelectedTextRange(focusInfo.element)
+        )
+    }
+
+    private func waitForFocusedTextVerification(
+        from snapshot: FocusedTextSnapshot?,
+        expectedText: String,
+        timeoutMicros: useconds_t
+    ) -> Bool {
+        guard let snapshot else {
+            usleep(timeoutMicros)
+            return false
+        }
+
+        let pollMicros: useconds_t = 50_000
+        let expectedLength = max(1, (expectedText as NSString).length)
+        let tolerance = max(2, expectedLength / 5)
+        var waited: useconds_t = 0
+
+        while waited < timeoutMicros {
+            usleep(pollMicros)
+            waited += pollMicros
+
+            guard let current = self.captureFocusedTextSnapshot(),
+                  current.pid == snapshot.pid
+            else {
+                continue
+            }
+
+            if let currentValue = current.value,
+               currentValue.contains(expectedText),
+               currentValue != snapshot.value
+            {
+                return true
+            }
+
+            if let before = snapshot.selectedRange,
+               let after = current.selectedRange,
+               after.length == 0
+            {
+                let expectedCaretLocation = before.location + expectedLength
+                let caretDelta = abs(after.location - expectedCaretLocation)
+                if caretDelta <= tolerance {
+                    return true
+                }
+            }
+        }
+
+        return false
     }
 
     private func insertTextAtCursorUsingSelectedRange(_ element: AXUIElement, _ text: String) -> Bool {
