@@ -1,7 +1,7 @@
 import Foundation
 
 enum AnalyticsBuckets {
-    static func wordCount(in text: String) -> Int {
+    nonisolated static func wordCount(in text: String) -> Int {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return 0 }
         return trimmed
@@ -9,7 +9,7 @@ enum AnalyticsBuckets {
             .count
     }
 
-    static func bucketWords(_ count: Int) -> String {
+    nonisolated static func bucketWords(_ count: Int) -> String {
         switch count {
         case ...0: return "0"
         case 1...5: return "1-5"
@@ -21,7 +21,7 @@ enum AnalyticsBuckets {
         }
     }
 
-    static func bucketSeconds(_ seconds: Double) -> String {
+    nonisolated static func bucketSeconds(_ seconds: Double) -> String {
         switch seconds {
         case ..<0.5: return "<0.5s"
         case 0.5..<2: return "0.5-2s"
@@ -32,7 +32,7 @@ enum AnalyticsBuckets {
         }
     }
 
-    static func bucketMs(_ ms: Double) -> String {
+    nonisolated static func bucketMs(_ ms: Double) -> String {
         switch ms {
         case ..<100: return "<100ms"
         case 100..<300: return "100-300ms"

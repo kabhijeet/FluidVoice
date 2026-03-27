@@ -3,6 +3,7 @@ import XCTest
 
 @testable import FluidVoice_Debug
 
+@MainActor
 final class DictationE2ETests: XCTestCase {
     private let enableTranscriptionSoundsKey = "EnableTranscriptionSounds"
     private let transcriptionStartSoundKey = "TranscriptionStartSound"
