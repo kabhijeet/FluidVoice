@@ -51,7 +51,7 @@ actor PostTranscriptionEditTracker {
         )
     }
 
-    func handleKeyDown(keyCode: UInt16, modifiers: NSEvent.ModifierFlags) {
+    func handleKeyDown(keyCode: UInt16, modifiers: NSEvent.ModifierFlags) async {
         guard let active else { return }
 
         let elapsed = Date().timeIntervalSince(active.completedAt)
@@ -88,7 +88,10 @@ actor PostTranscriptionEditTracker {
             props["ai_provider"] = provider
         }
 
-        AnalyticsService.shared.capture(.postTranscriptionEdit, properties: props)
+        let properties = props
+        await MainActor.run {
+            AnalyticsService.shared.capture(.postTranscriptionEdit, properties: properties)
+        }
 
         // Single-fire per transcription window.
         self.active = nil
